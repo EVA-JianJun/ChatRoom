@@ -29,7 +29,41 @@ class Node():
 class Server():
 
     def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None):
-        """ init """
+        """
+        文档:
+            建立一个服务端
+
+        参数:
+            ip : str
+                建立服务的IP地址
+            port : int
+                端口
+            password : str
+                密码
+            log : None or str
+                日志等级
+                    None: 除了错误什么都不显示
+                    "INFO": 显示基本连接信息
+                    "DEBUG": 显示所有信息
+            user_napw_info : dict
+                用户加密密码信息字典, 不指定跳过用户真实性检测
+                使用 hash_encryption 函数生成需要的 user_napw_info
+            blacklist : list
+                ip黑名单, 在这个列表中的ip无法连接服务端
+
+        例子:
+            # Server
+            S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
+                    # user_napw_info={
+                    #     "Foo" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+                    #     "Bar" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+                    #     },
+                    # blacklist = ["192.168.0.10"],
+                    )
+            # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
+            # 默认的回调函数只打印信息
+            S.default_callback_server()
+        """
         self.ip = ip
         self.port = port
         self.password = password
@@ -477,7 +511,37 @@ class Server():
 class Client():
 
     def __init__(self, client_name, client_password, log=None, auto_reconnect=False, reconnect_name_whitelist=None):
-        """ init """
+        """
+        文档:
+            创建一个客户端
+
+        参数:
+            client_name : str
+                客户端名称(用户名)
+            client_password : str
+                客户端密码(密码)
+            log : None or str
+                日志等级
+                    None: 除了错误什么都不显示
+                    "INFO": 显示基本连接信息
+                    "DEBUG": 显示所有信息
+            auto_reconnect : Bool
+                断开连接后是否自动重连服务端
+            reconnect_name_whitelist : list
+                自动重连服务端白名单
+                设置 reconnect_name_whitelist = ["Room"] 会自动重连名称为Room的服务端而不受auto_reconnect参数的影响
+
+        例子:
+            # Client
+            C = Client("Foo", "123456", log="INFO", auto_reconnect=True, reconnect_name_whitelist=None)
+
+            # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
+            # 默认的回调函数只打印信息
+            C.default_callback_server()
+
+            # 连接服务端, 服务端名称在客户端定义为Baz
+            C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
+        """
         self.client_name = client_name
         self.client_password = client_password
 
@@ -806,14 +870,14 @@ def hash_encryption(user_info_dict):
 
     user_info_dict:
     {
-        "Lee" : "123456",
-        "Tom" : "abcdef",
+        "Foo" : "123456",
+        "Bar" : "abcdef",
     }
 
     return:
     {
-        'Lee': b'$2b$10$qud3RGagUY0/DaQnGTw2uOz1X.TlpSF9sDhQFnQvAFuIfTLvk/UlC',
-        'Tom': b'$2b$10$rLdCMR7BJmuIczmNHjD2weTn4Mqt7vrvPqrqdTAQamow4OzvnqPji'
+        'Foo': b'$2b$10$qud3RGagUY0/DaQnGTw2uOz1X.TlpSF9sDhQFnQvAFuIfTLvk/UlC',
+        'Bar': b'$2b$10$rLdCMR7BJmuIczmNHjD2weTn4Mqt7vrvPqrqdTAQamow4OzvnqPji'
     }
     """
 
@@ -841,21 +905,21 @@ if __name__ == "__main__":
     # Server
     S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
             # user_napw_info={
-            #     "Lee" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
-            #     "Tom" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+            #     "Foo" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+            #     "Bar" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
             #     },
-            # blacklist = ["127.0.0.1"],
+            # blacklist = ["192.168.0.10"],
             )
 
     S.default_callback_server()
 
     # Client
-    C = Client("Lee", "123456", log="INFO", auto_reconnect=True)
+    C = Client("Foo", "123456", log="INFO", auto_reconnect=True)
 
     C.default_callback_server()
 
-    C.conncet("Andy" ,"127.0.0.1", 12345, password="abc123")
+    C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
 
     # send info
-    S.user.Lee.send("Hello world!")
-    C.user.Andy.send("Hello world!")
+    S.user.Foo.send("Hello world!")
+    C.user.Baz.send("Hello world!")
