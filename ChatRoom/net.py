@@ -46,7 +46,8 @@ class Server():
                     "INFO": 显示基本连接信息
                     "DEBUG": 显示所有信息
             user_napw_info : dict
-                用户加密密码信息字典, 不指定跳过用户真实性检测
+                用户加密密码信息字典, 设定后只有使用正确的用户名和密码才能登录服务端
+                不指定跳过用户真实性检测
                 使用 hash_encryption 函数生成需要的 user_napw_info
             blacklist : list
                 ip黑名单, 在这个列表中的ip无法连接服务端
@@ -60,6 +61,7 @@ class Server():
                     #     },
                     # blacklist = ["192.168.0.10"],
                     )
+
             # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
             # 默认的回调函数只打印信息
             S.default_callback_server()
@@ -528,8 +530,7 @@ class Client():
             auto_reconnect : Bool
                 断开连接后是否自动重连服务端
             reconnect_name_whitelist : list
-                自动重连服务端白名单
-                设置 reconnect_name_whitelist = ["Room"] 会自动重连名称为Room的服务端而不受auto_reconnect参数的影响
+                如果reconnect_name_whitelist不为空, 则重新连接只会连接客户端名称在reconnect_name_whitelist里的服务端
 
         例子:
             # Client

@@ -25,7 +25,37 @@ class Rely_Node():
 
 class Room():
 
-    def __init__(self, ip="", port=2428, password="Passable", log="INFO"):
+    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None):
+        """
+        文档:
+            创建一个聊天室
+
+        参数:
+            ip : str
+                聊天室建立服务的IP地址
+            port : int
+                端口
+            password : str
+                密码
+            log : None or str
+                日志等级
+                    None: 除了错误什么都不显示
+                    "INFO": 显示基本连接信息
+                    "DEBUG": 显示所有信息
+            user_napw_info : dict
+                用户加密密码信息字典, 设定后只有使用正确的用户名和密码才能登录服务端
+                不指定跳过用户真实性检测
+                使用 hash_encryption 函数生成需要的 user_napw_info
+            blacklist : list
+                ip黑名单, 在这个列表中的ip会被聊天室集群拉黑
+
+        例子:
+            # 启动一个聊天室
+            import ChatRoom
+            room = ChatRoom.Room()
+
+            # 其他功能请参考user_napw_info和blacklist的作用
+        """
 
         if not ip:
             ip = get_host_ip()
@@ -33,10 +63,12 @@ class Room():
         self.ip = ip
         self.port = port
         self.password = password
+        self.user_napw_info = user_napw_info
+        self.blacklist = blacklist
 
         self._log = Log(log)
 
-        self.server = Server(self.ip, self.port, self.password, log=log)
+        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist)
 
         self.server.register_disconnect_user_fun(self._disconnect_callback)
 
@@ -85,7 +117,7 @@ class Room():
                         # ['Forwarding', 'Alice', 'Hello!']
                         exec("self.user.{0}.send(['Forwarding', user, user_info])".format(to_user))
                     elif cmd == "user_info":
-                        #  ['Alice', ['user_info', {'local_ip': '10.88.3.152', 'public_ip': '', 'port': 13004, 'password': 'Z(qC\x0b1=\nkc\ry|L\t+', 'is_public_network': False, 'group': 'D'}]]
+                        #  ['Alice', ['user_info', {'local_ip': '10.88.3.152', 'public_ip': '', 'port': 13004, 'password': 'Z(qC\x0b1=\nkc\ry|L\t+', 'is_public_network': False, 'lan_id': 'D'}]]
                         user_info = recv_data[1][1]
                         self._user_info_dict[user] = user_info
 
@@ -108,7 +140,7 @@ class Room():
                         # print(user_a, user_b)
                         user_info_a = self._user_info_dict[user_a]
                         user_info_b = self._user_info_dict[user_b]
-                        if user_info_a['group'] == user_info_b['group']:
+                        if user_info_a['lan_id'] == user_info_b['lan_id']:
                             # 同一局域网, 局域网互联, a连接b
                             #       cmd               name,                      ip,                port,             password
                             exec("self.user.{0}.send(['connect', user_info_b['name'], user_info_b['local_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
@@ -150,7 +182,51 @@ class Room():
 
 class User():
 
-    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", group="Default", log="INFO", password_digits=16):
+    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16):
+        """
+        文档:
+            创建一个聊天室用户
+
+        参数:
+            user_name : str
+                用户名
+            user_password : str
+                用户密码
+            room_ip : str
+                需要连接的聊天室ip, 默认为本机ip
+            room_port : int
+                需要连接的聊天室端口
+            room_password : str
+                需要连接的聊天室密码
+            public_ip : str
+                如果本机拥有公网ip填写public_ip后本机被标记为公网ip用户
+                其他用户连接本用户都将通过此公网ip进行连接
+            server_port : int
+                本机消息服务对外端口, 默认为 0 系统自动分配
+                请注意需要在各种安全组或防火墙开启此端口
+            lan_id : str
+                默认为"Default", 局域网id, 由用户手动设置
+                同一局域网的用户请使用相同的局域网id, 这样同一内网下的用户将直接局域网互相连接而不会通过速度慢的中继连接等方式
+            log : None or str
+                日志等级
+                    None: 除了错误什么都不显示
+                    "INFO": 显示基本连接信息
+                    "DEBUG": 显示所有信息
+            password_digits : int
+                密码位数, 默认16位
+
+        例子:
+            import ChatRoom
+
+            # 创建一个聊天室用户
+            user = ChatRoom.User(
+                    user_name="Foo",
+                )
+
+            # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
+            # 默认的回调函数只打印信息
+            user.default_callback()
+        """
 
         self.user_name = user_name
         if self.user_name == "Room":
@@ -172,7 +248,7 @@ class User():
         self.user_password = user_password
 
         # 分组
-        self.group = group
+        self.lan_id = lan_id
 
         self.local_ip = get_host_ip()
         self.public_ip = public_ip
@@ -234,7 +310,7 @@ class User():
                     "port" : self.port,
                     "password" :  self.server_password,
                     "is_public_network" : self.is_public_network,
-                    "group" : self.group,
+                    "lan_id" : self.lan_id,
                 },
             ]
         )
@@ -320,3 +396,23 @@ class User():
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
         sub_th.start()
+
+
+if __name__ == "__main__":
+
+    # Room
+    import ChatRoom
+    room = ChatRoom.Room()
+
+    # User
+    import ChatRoom
+
+    user = ChatRoom.User(
+            user_name="Foo",
+        )
+
+    user.default_callback()
+
+    # send info
+    user.user.Room.send("Hello")
+    room.user.Foo.send("Hello")
