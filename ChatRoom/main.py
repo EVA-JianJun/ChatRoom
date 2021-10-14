@@ -120,6 +120,9 @@ class Room():
                         #  ['Alice', ['user_info', {'local_ip': '10.88.3.152', 'public_ip': '', 'port': 13004, 'password': 'Z(qC\x0b1=\nkc\ry|L\t+', 'is_public_network': False, 'lan_id': 'D'}]]
                         user_info = recv_data[1][1]
                         self._user_info_dict[user] = user_info
+                    elif cmd == "CMD_GET_USER_NAPW_INFO":
+                        # ['Alice', 'CMD_GET_USER_NAPW_INFO']
+                        exec("self.user.{0}.send(['user_napw_info', self.user_napw_info])".format(user))
 
                 except Exception as err:
                     traceback.print_exc()
@@ -178,7 +181,6 @@ class Room():
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
         sub_th.start()
-
 
 class User():
 
@@ -284,7 +286,8 @@ class User():
         self._callback_pretreatment(self.client.recv_info_queue)
 
         # 进入聊天室
-        self.client.conncet("Room" , self.room_ip, self.room_port, self.room_password)
+        self.client.conncet("Room", self.room_ip, self.room_port, self.room_password)
+        self.user.Room.send(["CMD_GET_USER_NAPW_INFO"])
 
     def _relay_connect(self, to_user_name):
 
@@ -375,6 +378,11 @@ class User():
                             else:
                                 self._del_relay_connect(name)
                             continue
+                        elif cmd == 'user_napw_info':
+                            # ["Room", ["user_napw_info", name]]
+                            user_napw_info = recv_data[1][1]
+                            self.server.user_napw_info = user_napw_info
+                            continue
 
                     self.recv_info_queue.put(recv_data)
                 except Exception as err:
@@ -397,7 +405,6 @@ class User():
         sub_th.setDaemon(True)
         sub_th.start()
 
-
 if __name__ == "__main__":
 
     # Room
@@ -409,6 +416,29 @@ if __name__ == "__main__":
 
     user = ChatRoom.User(
             user_name="Foo",
+        )
+
+    user.default_callback()
+
+    # send info
+    user.user.Room.send("Hello")
+    room.user.Foo.send("Hello")
+
+    # 需要验证用户密码的形式
+    # Room
+    import ChatRoom
+
+    # user_napw_info 使用 hash_encryption 函数生成
+    user_napw_info = {'Foo': b'$2b$10$RjxnUdrJbLMLe/bNY7sUU.SmDmsAyfSUmuvXQ7eYjXYVKNlR36.XG',
+        'Bar': b'$2b$10$/CIYKXeTwaXcuJIvv7ySY.Tzs17u/EwqT5UlOAkNIosK594FTB35e'}
+    room = ChatRoom.Room(user_napw_info=user_napw_info)
+
+    # User
+    import ChatRoom
+
+    user = ChatRoom.User(
+            user_name="Foo",
+            user_password="123456"
         )
 
     user.default_callback()
