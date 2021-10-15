@@ -15,7 +15,10 @@ setup(
     long_description = long_description,
     long_description_content_type = "text/markdown",
     packages = ["ChatRoom"],
-    install_requires = [],
+    install_requires = [
+        "rsa>=4.0",
+        "bcrypt>=3.2.0",
+    ],
     entry_points={
     },
 )
