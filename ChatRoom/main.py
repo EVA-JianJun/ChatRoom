@@ -33,20 +33,20 @@ class Room():
         参数:
             ip : str
                 聊天室建立服务的IP地址
-            port : int
+            port : int (Default: 2428)
                 端口
-            password : str
+            password : str (Default: "Passable")
                 密码
-            log : None or str
+            log : None or str (Default: "INFO")
                 日志等级
                     None: 除了错误什么都不显示
                     "INFO": 显示基本连接信息
                     "DEBUG": 显示所有信息
-            user_napw_info : dict
+            user_napw_info : dict (Default: {})
                 用户加密密码信息字典, 设定后只有使用正确的用户名和密码才能登录服务端
                 不指定跳过用户真实性检测
                 使用 hash_encryption 函数生成需要的 user_napw_info
-            blacklist : list
+            blacklist : list (Default: [])
                 ip黑名单, 在这个列表中的ip会被聊天室集群拉黑
 
         例子:
@@ -192,29 +192,29 @@ class User():
         参数:
             user_name : str
                 用户名
-            user_password : str
+            user_password : str (Default: "")
                 用户密码
-            room_ip : str
+            room_ip : str (Default: "127.0.0.1")
                 需要连接的聊天室ip, 默认为本机ip
-            room_port : int
+            room_port : int  (Default: 2428)
                 需要连接的聊天室端口
-            room_password : str
+            room_password : str (Default: "Passable")
                 需要连接的聊天室密码
-            public_ip : str
+            public_ip : str (Default: "")
                 如果本机拥有公网ip填写public_ip后本机被标记为公网ip用户
                 其他用户连接本用户都将通过此公网ip进行连接
-            server_port : int
+            server_port : int (Default: ramdom)
                 本机消息服务对外端口, 默认为 0 系统自动分配
                 请注意需要在各种安全组或防火墙开启此端口
-            lan_id : str
+            lan_id : str (Default: "Default")
                 默认为"Default", 局域网id, 由用户手动设置
                 同一局域网的用户请使用相同的局域网id, 这样同一内网下的用户将直接局域网互相连接而不会通过速度慢的中继连接等方式
-            log : None or str
+            log : None or str (Default: "INFO")
                 日志等级
                     None: 除了错误什么都不显示
                     "INFO": 显示基本连接信息
                     "DEBUG": 显示所有信息
-            password_digits : int
+            password_digits : int (Default: 16)
                 密码位数, 默认16位
 
         例子:
