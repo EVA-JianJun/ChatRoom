@@ -4,7 +4,7 @@
 
 ## 安装
 
-    pip install ChatRoom
+    pip install ChatRoom-jianjun
 
 ## 简介
 
