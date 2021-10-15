@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fd:
     long_description = fd.read()
 
 setup(
-    name = 'ChatRoom',
+    name = 'ChatRoom-jianjun',
     version = '1.0.0',
     author = 'jianjun',
     author_email = '910667956@qq.com',
