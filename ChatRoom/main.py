@@ -322,6 +322,7 @@ class User():
 
         exec("del self.user.{0}".format(to_user_name))
         self._relay_connect_name_set.remove(to_user_name)
+        self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), to_user_name, "relay offline!"))
 
     def _connect(self, server_name, ip, port, password):
 
