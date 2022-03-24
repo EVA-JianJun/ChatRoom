@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import sys
 import time
 import pickle
 import socket
@@ -579,7 +580,8 @@ class Client():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
-        sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 60000, 30000))
+        if sys.platform == "win32":
+            sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 60000, 30000))
 
         sock.connect((ip, port))
         self._log.log_info("{0}: \033[0;36;42mConnect:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
