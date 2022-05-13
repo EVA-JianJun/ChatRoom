@@ -29,7 +29,7 @@ class Node():
 
 class Server():
 
-    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None):
+    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None, encryption=True):
         """
         文档:
             建立一个服务端
@@ -52,6 +52,8 @@ class Server():
                 使用 hash_encryption 函数生成需要的 user_napw_info
             blacklist : list
                 ip黑名单, 在这个列表中的ip无法连接服务端
+            encryption : bool
+                是否加密传输,默认True,不加密效率较高
 
         例子:
             # Server
@@ -70,6 +72,13 @@ class Server():
         self.ip = ip
         self.port = port
         self.password = password
+
+        if not encryption:
+            # 不使用加密
+            self._recv_fun_encrypt = self._recv_fun
+            self._send_fun_encrypt = self._send_fun
+            self._recv_fun_encrypt_s = self._recv_fun_s
+            self._send_fun_encrypt_s = self._send_fun_s
 
         if not blacklist:
             self.blacklist = []
@@ -513,7 +522,7 @@ class Server():
 
 class Client():
 
-    def __init__(self, client_name, client_password, log=None, auto_reconnect=False, reconnect_name_whitelist=None):
+    def __init__(self, client_name, client_password, log=None, auto_reconnect=False, reconnect_name_whitelist=None, encryption=True):
         """
         文档:
             创建一个客户端
@@ -532,6 +541,8 @@ class Client():
                 断开连接后是否自动重连服务端
             reconnect_name_whitelist : list
                 如果reconnect_name_whitelist不为空, 则重新连接只会连接客户端名称在reconnect_name_whitelist里的服务端
+            encryption : bool
+                是否加密传输,默认True,不加密效率较高
 
         例子:
             # Client
@@ -546,6 +557,11 @@ class Client():
         """
         self.client_name = client_name
         self.client_password = client_password
+
+        if not encryption:
+            # 不使用加密
+            self._recv_fun_encrypt = self._recv_fun
+            self._send_fun_encrypt = self._send_fun
 
         self.recv_info_queue = queue.Queue()
 
