@@ -52,8 +52,8 @@ class Server():
                 使用 hash_encryption 函数生成需要的 user_napw_info
             blacklist : list
                 ip黑名单, 在这个列表中的ip无法连接服务端
-            encryption : bool
-                是否加密传输,默认True,不加密效率较高
+            encryption : bool(default True)
+                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
         例子:
             # Server
@@ -541,8 +541,8 @@ class Client():
                 断开连接后是否自动重连服务端
             reconnect_name_whitelist : list
                 如果reconnect_name_whitelist不为空, 则重新连接只会连接客户端名称在reconnect_name_whitelist里的服务端
-            encryption : bool
-                是否加密传输,默认True,不加密效率较高
+            encryption : bool(default True)
+                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
         例子:
             # Client

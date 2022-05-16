@@ -25,7 +25,7 @@ class Rely_Node():
 
 class Room():
 
-    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None):
+    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True):
         """
         文档:
             创建一个聊天室
@@ -48,6 +48,8 @@ class Room():
                 使用 hash_encryption 函数生成需要的 user_napw_info
             blacklist : list (Default: [])
                 ip黑名单, 在这个列表中的ip会被聊天室集群拉黑
+            encryption : bool(default True)
+                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
         例子:
             # 启动一个聊天室
@@ -65,10 +67,11 @@ class Room():
         self.password = password
         self.user_napw_info = user_napw_info
         self.blacklist = blacklist
+        self.encryption = encryption
 
         self._log = Log(log)
 
-        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist)
+        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption)
 
         self.server.register_disconnect_user_fun(self._disconnect_callback)
 
@@ -184,7 +187,7 @@ class Room():
 
 class User():
 
-    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16):
+    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True):
         """
         文档:
             创建一个聊天室用户
@@ -216,6 +219,8 @@ class User():
                     "DEBUG": 显示所有信息
             password_digits : int (Default: 16)
                 密码位数, 默认16位
+            encryption : bool(default True)
+                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
         例子:
             import ChatRoom
@@ -240,6 +245,7 @@ class User():
         self.room_ip = room_ip
         self.room_port = room_port
         self.room_password = room_password
+        self.encryption = encryption
 
         self._log = Log(log)
 
@@ -265,7 +271,7 @@ class User():
 
         self.server_password = self._random_password(password_digits)
 
-        self.server = Server(self.local_ip, self.server_port,  self.server_password, log=log)
+        self.server = Server(self.local_ip, self.server_port,  self.server_password, log=log, encryption=encryption)
 
         time.sleep(.01)
         while True:
@@ -275,7 +281,7 @@ class User():
                 time.sleep(.1)
         self.port = self.server.port
 
-        self.client = Client(self.user_name, self.user_password, log="INFO", auto_reconnect=True, reconnect_name_whitelist=["Room"])
+        self.client = Client(self.user_name, self.user_password, log="INFO", auto_reconnect=True, reconnect_name_whitelist=["Room"], encryption=encryption)
 
         # Redirect
         self.client.recv_info_queue = self.server.recv_info_queue
