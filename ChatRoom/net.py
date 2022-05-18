@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import time
+import uuid
 import pickle
 import socket
 import queue
@@ -26,6 +27,21 @@ class Node():
     def send(self, data):
 
         self.master.send(self.name, data)
+
+    def get(self, get_name, data, timeout=5):
+
+        uuid_id = uuid.uuid1()
+        self.master.send(self.name, ["CMD_GET", uuid_id, get_name, data])
+
+        self.master.get_event_info_dict[uuid_id] = {
+            "event" : threading.Event(),
+        }
+
+        self.master.get_event_info_dict[uuid_id]["event"].clear()
+        if self.master.get_event_info_dict[uuid_id]["event"].wait(timeout):
+            return self.master.get_event_info_dict[uuid_id]["result"]
+        else:
+            raise Exception("TimeoutError: {0} {1} timeout err!".format(get_name, timeout))
 
 class Server():
 
@@ -97,6 +113,12 @@ class Server():
 
         self.recv_info_queue = queue.Queue()
 
+        self.get_event_info_dict = {}
+
+        self.recv_get_info_queue = queue.Queue()
+
+        self.get_callback_func_dict = {}
+
         self._log = Log(log)
 
         self._encrypt = encrypt()
@@ -112,6 +134,8 @@ class Server():
         self._connect_timeout_server()
 
         self._heartbeat_server()
+
+        self._get_event_callback_server()
 
     def _heartbeat_server(self):
 
@@ -234,7 +258,23 @@ class Server():
                 recv_data = self._recv_fun_encrypt(client_name)
                 if recv_data == "CMD_heartbeat_END":
                     continue
-                self.recv_info_queue.put([client_name, recv_data])
+                else:
+                    try:
+                        cmd = recv_data[0]
+                    except Exception:
+                        # if recv_data not ["CMD_GET", uuid_id, get_name, data] type
+                        # if recv_data not ["CMD_REGET", uuid_id, data] type
+                        pass
+                    else:
+                        if cmd == "CMD_GET":
+                            # process ["CMD_GET", uuid_id, get_name, data]
+                            self.recv_get_info_queue.put([client_name, recv_data])
+                        elif cmd == "CMD_REGET":
+                            # get result ["CMD_REGET", uuid_id, data]
+                            self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                            self.get_event_info_dict[recv_data[1]]["event"].set()
+                        else:
+                            self.recv_info_queue.put([client_name, recv_data])
             except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                 self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name, err))
                 try:
@@ -243,6 +283,29 @@ class Server():
                     traceback.print_exc()
                     print(err)
                 break
+
+    def _default_get_event_callback_func(self, data):
+        return ["default", data]
+
+    def register_get_event_callback_func(self, get_name, func):
+        self.get_callback_func_dict[get_name] = func
+
+    def _get_event_callback_server(self):
+        def server():
+            while True:
+                try:
+                    # client_name ["CMD_GET", uuid_id, get_name, data]
+                    client_name, recv_data = self.recv_get_info_queue.get()
+                    result = self.get_callback_func_dict.get(recv_data[2], self._default_get_event_callback_func)(recv_data[3])
+                    self.send(client_name, ["CMD_REGET", recv_data[1], result])
+                except Exception as err:
+                    print("{0}: \033[0;36;41mServer 处理get任务错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    traceback.print_exc()
+                    print(err)
+
+        server_th = threading.Thread(target=server)
+        server_th.setDaemon(True)
+        server_th.start()
 
     def _disconnect_user_fun(self, *args, **kwargs):
         pass
@@ -565,6 +628,12 @@ class Client():
 
         self.recv_info_queue = queue.Queue()
 
+        self.get_event_info_dict = {}
+
+        self.recv_get_info_queue = queue.Queue()
+
+        self.get_callback_func_dict = {}
+
         self.user = User()
 
         self._send_lock = threading.Lock()
@@ -590,6 +659,8 @@ class Client():
             self._auto_reconnect_server()
 
         self._heartbeat_server()
+
+        self._get_event_callback_server()
 
     def conncet(self, server_name, ip, port, password="abc123"):
 
@@ -734,7 +805,23 @@ class Client():
                     recv_data = self._recv_fun_encrypt(server_name)
                     if recv_data == "CMD_heartbeat_END":
                         continue
-                    self.recv_info_queue.put([server_name, recv_data])
+                    else:
+                        try:
+                            cmd = recv_data[0]
+                        except Exception:
+                            # if recv_data not ["CMD_GET", uuid_id, get_name, data] type
+                            # if recv_data not ["CMD_REGET", uuid_id, data] type
+                            pass
+                        else:
+                            if cmd == "CMD_GET":
+                                # process ["CMD_GET", uuid_id, get_name, data]
+                                self.recv_get_info_queue.put([server_name, recv_data])
+                            elif cmd == "CMD_REGET":
+                                # get result ["CMD_REGET", uuid_id, data]
+                                self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                                self.get_event_info_dict[recv_data[1]]["event"].set()
+                            else:
+                                self.recv_info_queue.put([server_name, recv_data])
                 except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                     self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name, err))
                     try:
@@ -747,6 +834,29 @@ class Client():
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
         sub_th.start()
+
+    def _default_get_event_callback_func(self, data):
+        return ["default", data]
+
+    def register_get_event_callback_func(self, get_name, func):
+        self.get_callback_func_dict[get_name] = func
+
+    def _get_event_callback_server(self):
+        def server():
+            while True:
+                try:
+                    # client_name ["CMD_GET", uuid_id, get_name, data]
+                    client_name, recv_data = self.recv_get_info_queue.get()
+                    result = self.get_callback_func_dict.get(recv_data[2], self._default_get_event_callback_func)(recv_data[3])
+                    self.send(client_name, ["CMD_REGET", recv_data[1], result])
+                except Exception as err:
+                    print("{0}: \033[0;36;41mClient 处理get任务错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    traceback.print_exc()
+                    print(err)
+
+        server_th = threading.Thread(target=server)
+        server_th.setDaemon(True)
+        server_th.start()
 
     def default_callback_server(self):
         def sub():
@@ -920,7 +1030,6 @@ def get_host_ip():
     return ip
 
 if __name__ == "__main__":
-
     # Server
     S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
             # user_napw_info={
@@ -942,3 +1051,19 @@ if __name__ == "__main__":
     # send info
     S.user.Foo.send("Hello world!")
     C.user.Baz.send("Hello world!")
+
+    def server_test_get_callback_func(data):
+        # do something
+        return ["server test", data]
+
+    def client_test_get_callback_func(data):
+        # do something
+        return ["client test", data]
+
+    # register callback func
+    S.register_get_event_callback_func("test", server_test_get_callback_func)
+    C.register_get_event_callback_func("test", client_test_get_callback_func)
+
+    # get info
+    print(S.user.Foo.get("test", "Hello world!"))
+    print(C.user.Baz.get("test", "Hello world!"))

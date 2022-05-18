@@ -412,44 +412,93 @@ class User():
         sub_th.setDaemon(True)
         sub_th.start()
 
+    def register_get_event_callback_func(self, get_name, func):
+        self.client.register_get_event_callback_func(get_name, func)
+        self.server.register_get_event_callback_func(get_name, func)
+
 if __name__ == "__main__":
+    """ ChatRoom 是单Room多User的形式运行的,实际使用中请创建多个User使用 """
+    random_int = random.randrange(1, 3)
+    if random_int == 1:
+        # Room
+        import ChatRoom
+        room = ChatRoom.Room()
 
-    # Room
-    import ChatRoom
-    room = ChatRoom.Room()
+        # User
+        import ChatRoom
 
-    # User
-    import ChatRoom
+        user = ChatRoom.User(
+                user_name="Foo",
+            )
 
-    user = ChatRoom.User(
-            user_name="Foo",
-        )
+        user.default_callback()
 
-    user.default_callback()
+        # send info
+        user.user.Room.send("Hello")
+        room.user.Foo.send("Hello")
+    elif random_int == 2:
+        # 需要验证用户密码的形式
+        # Room
+        import ChatRoom
 
-    # send info
-    user.user.Room.send("Hello")
-    room.user.Foo.send("Hello")
+        # user_napw_info 使用 hash_encryption 函数生成
+        user_napw_info = {'Foo': b'$2b$10$RjxnUdrJbLMLe/bNY7sUU.SmDmsAyfSUmuvXQ7eYjXYVKNlR36.XG',
+            'Bar': b'$2b$10$/CIYKXeTwaXcuJIvv7ySY.Tzs17u/EwqT5UlOAkNIosK594FTB35e'}
+        room = ChatRoom.Room(user_napw_info=user_napw_info)
 
-    # 需要验证用户密码的形式
-    # Room
-    import ChatRoom
+        # User
+        import ChatRoom
 
-    # user_napw_info 使用 hash_encryption 函数生成
-    user_napw_info = {'Foo': b'$2b$10$RjxnUdrJbLMLe/bNY7sUU.SmDmsAyfSUmuvXQ7eYjXYVKNlR36.XG',
-        'Bar': b'$2b$10$/CIYKXeTwaXcuJIvv7ySY.Tzs17u/EwqT5UlOAkNIosK594FTB35e'}
-    room = ChatRoom.Room(user_napw_info=user_napw_info)
+        user = ChatRoom.User(
+                user_name="Foo",
+                user_password="123456"
+            )
 
-    # User
-    import ChatRoom
+        user.default_callback()
 
-    user = ChatRoom.User(
-            user_name="Foo",
-            user_password="123456"
-        )
+        # send info
+        user.user.Room.send("Hello")
+        room.user.Foo.send("Hello")
 
-    user.default_callback()
+    elif random_int == 3:
+        # Room
+        import ChatRoom
+        room = ChatRoom.Room()
 
-    # send info
-    user.user.Room.send("Hello")
-    room.user.Foo.send("Hello")
+        # User1
+        import ChatRoom
+
+        user1 = ChatRoom.User(
+                user_name="Foo",
+            )
+
+        user1.default_callback()
+
+        def server_test_get_callback_func(data):
+            # do something
+            return ["user1 doing test", data]
+
+        user1.register_get_event_callback_func("test", server_test_get_callback_func)
+
+        # User2
+        import ChatRoom
+
+        user2 = ChatRoom.User(
+                user_name="Bar",
+            )
+
+        user2.default_callback()
+
+        def server_test_get_callback_func(data):
+            # do something
+            return ["user2 doing test", data]
+
+        user2.register_get_event_callback_func("test", server_test_get_callback_func)
+
+        # send info
+        user1.user.Bar.send("Hello user2")
+        user2.user.Foo.send("Hello user1")
+
+        # get info
+        print(user1.user.Bar.get("test", "Hello get"))
+        print(user2.user.Foo.get("test", "Hello get"))

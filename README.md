@@ -36,8 +36,9 @@
 * **高层对象**：`ChatRoom` 是通过网络来传输 `Python` 数据对象，所以只有需要使用网络传输的情况使用 `ChatRoom` 才是合适的；
 * **安全高效**：传输层使用 `TCP` 协议，保证数据传输可靠，会话层使用了双端非对称加密保证数据传输的安全性，密码保存使用了 `bcrypt` 算法，保证用户密码不泄露；
 * **全自动化**：`ChatRoom` 的优势在于无论客户端主机是局域网机器，公网机器，还是不同内网环境的机器，都会由 `Room` 自动调度后分配集群的最高效连接方式；
-* **逻辑隔离**：`ChatRoom` 让用户专注与程序逻辑处理，而不用考虑物理机的网络配置，大多数的情况下只需几个参数就可以让集群互相连接起来；
+* **逻辑隔离**：`ChatRoom` 让用户专注于程序逻辑处理，而不用考虑物理机的网络配置，大多数的情况下只需几个参数就可以让集群互相连接起来；
 
+会话层加密可以关闭，可略微提升传输性能，但必须双端同时开启或者关闭加密.
 
 **`ChatRoom` 包含 `Room` 和 `User` 类、底层的 `Server` 和 `Client` 类、一个生成用户HASH密码的函数 `hash_encryption`**
 
@@ -91,6 +92,8 @@
             使用 hash_encryption 函数生成需要的 user_napw_info
         blacklist : list (Default: [])
             ip黑名单, 在这个列表中的ip会被聊天室集群拉黑
+        encryption : bool(default True)
+            是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
     例子:
         # 启动一个聊天室
@@ -106,7 +109,7 @@
 
 这里说下怎么设置连接集群的用户密码，其实就是对用户身份进行验证，冒充的用户是连接不上的.
 
-不用担心密码被暴力破解, 一是有拉黑逻辑，二是 `bcrypt` 算法对暴力破解非常不友好，暴力破解是不可能的！
+不用担心密码被暴力破解，一是有拉黑逻辑，二是 `bcrypt` 算法对暴力破解非常不友好，暴力破解是不可能的！
 
     import ChatRoom
 
@@ -184,6 +187,8 @@
             log="INFO",
             # 密码位数
             password_digits=16,
+            # 是否加密
+            encryption = True,
 
         )
 
@@ -218,6 +223,8 @@
                 "DEBUG": 显示所有信息
         password_digits : int (Default: 16)
             密码位数, 默认16位
+        encryption : bool(default True)
+            是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
 
     例子:
         import ChatRoom
@@ -230,19 +237,31 @@
         # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
         # 默认的回调函数只打印信息
         user.default_callback()
+
+        # 设置请求回调函数
+        def server_test_get_callback_func(data):
+            # do something
+            return ["user doing test", data]
+
+        user.register_get_event_callback_func("test", server_test_get_callback_func)
     """
 
 需要注意的有 `public_ip`、`server_port`、`lan_id` 三个参数
 
 * 具有公网IP的机器才需要设置 `public_ip`
-* 有些机器的环境有安全组或防火墙什么的, 需要放通相应的端口, 所以此类机器需要指定 `server_port`
-* 在同一局域网内的用户指定为相同的 `lan_id` , 好让他们互相使用局域网直接互相连接
+* 有些机器的环境有安全组或防火墙什么的，需要放通相应的端口，所以此类机器需要指定 `server_port`
+* 在同一局域网内的用户指定为相同的 `lan_id` ，好让他们互相使用局域网直接互相连接
 
-`Room` 应该搭建在所有 `User` 都能访问的机器上, 然后 `User` 根据自身的情况设置好参数, 以后无论程序重启、离线、上线导致该 `User` 断开连接, 其他 `User` 都会自动处理连接, 在该 `User` 重新连接到集群中时, `Room` 会重新调度连接该 `User`.
+`Room` 应该搭建在所有 `User` 都能访问的机器上，然后 `User` 根据自身的情况设置好参数，以后无论程序重启、离线、上线导致该 `User` 断开连接，其他 `User` 都会自动处理连接，在该 `User` 重新连接到集群中时，`Room` 会重新调度连接该 `User`.
 
-### 回调函数数据接受
+## 数据接收模式
+### send 数据流
 
-无论`Room` 还是 `User`, 所有的信息接受到都会存储在 `self.recv_info_queue` 队列里, 上面的 `slef.default_callback` 函数默认只是简单的打印了队列里的信息.
+    # send info
+    user1.user.Bar.send("Hello user2")
+    user2.user.Foo.send("Hello user1")
+
+使用send发送的数据无论`Room` 还是 `User`，所有的信息接受到都会存储在 `self.recv_info_queue` 队列里，上面的 `slef.default_callback` 函数默认只是简单的打印了队列里的信息.
 
     def default_callback_server(self):
         def sub():
@@ -256,7 +275,7 @@
         sub_th.setDaemon(True)
         sub_th.start()
 
-**这里使用了线程循环处理接受到的数据, 且只打印了接收到的数据, 用户需要根据实际情况覆写或者重新 `default_callback_server` 函数实现自己的功能.**
+**这里使用了线程循环处理接受到的数据，且只打印了接收到的数据，用户需要根据实际情况覆写或者重新 `default_callback_server` 函数实现自己的功能.**
 
     class My_User(User):
 
@@ -279,10 +298,88 @@
             sub_th.setDaemon(True)
             sub_th.start()
 
+### get 请求数据
+
+    import ChatRoom
+
+    # User1
+    user1 = ChatRoom.User(
+            user_name="Foo",
+        )
+
+    user1.default_callback()
+
+    def server_test_get_callback_func(data):
+        # do something
+        return ["user1 doing test", data]
+
+    user1.register_get_event_callback_func("test", server_test_get_callback_func)
+
+    # User2
+    user2 = ChatRoom.User(
+            user_name="Bar",
+        )
+
+    user2.default_callback()
+
+    def server_test_get_callback_func(data):
+        # do something
+        return ["user2 doing test", data]
+
+    user2.register_get_event_callback_func("test", server_test_get_callback_func)
+
+    # get info
+    print(user1.user.Bar.get("test", "Hello get"))
+    print(user2.user.Foo.get("test", "Hello get"))
+
+这种模式相当于查询，就是请求注册的 `test` 函数，等待对方返回数据后这个 `get` 函数会放回相应的结果
+回调函数需要自己实现，然后使用 `register_get_event_callback_func` 函数注册
 
 ## Server & Client
 
     ChatRoom.Server
     ChatRoom.Client
 
-`Server` 和 `Client` 是 `Room` 所使用底层连接协议, 属于单Server对多Client的连接模式, 在一些需求简单的情况下使用 `Server` 和 `Client` 也是可以的, 具体的使用方式请参考构造函数文档, 或查阅源代码.
+`Server` 和 `Client` 是 `ChatRoom` 所使用底层连接协议对象，属于单Server对多Client的连接模式，在一些需求简单的情况下使用 `Server` 和 `Client` 是不错的选择.
+这种模式和 `Room` & `User` 的不同点是没有 `Room` 进行中间调度，但模式也相对于简化些.
+
+    from ChatRoom.net import Server, Client
+
+    # Server
+    S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
+            # user_napw_info={
+            #     "Foo" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+            #     "Bar" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
+            #     },
+            # blacklist = ["192.168.0.10"],
+            )
+
+    S.default_callback_server()
+
+    # Client
+    C = Client("Foo", "123456", log="INFO", auto_reconnect=True)
+
+    C.default_callback_server()
+
+    C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
+
+    # send info
+    S.user.Foo.send("Hello world!")
+    C.user.Baz.send("Hello world!")
+
+    def server_test_get_callback_func(data):
+        # do something
+        return ["server test", data]
+
+    def client_test_get_callback_func(data):
+        # do something
+        return ["client test", data]
+
+    # register callback func
+    S.register_get_event_callback_func("test", server_test_get_callback_func)
+    C.register_get_event_callback_func("test", client_test_get_callback_func)
+
+    # get info
+    print(S.user.Foo.get("test", "Hello world!"))
+    print(C.user.Baz.get("test", "Hello world!"))
+
