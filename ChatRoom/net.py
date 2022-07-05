@@ -724,26 +724,34 @@ class Client():
 
         def re_connect(server_name, ip, port, password):
 
-            try:
-                old_delay = self._auto_reconnect_timedelay_dict[server_name]
-                if old_delay > 30:
-                    self._auto_reconnect_timedelay_dict[server_name] = 30
-            except KeyError:
-                old_delay = self._auto_reconnect_timedelay_dict[server_name] = 0
+            for _ in range(10):
+                # limit max 10 times
+                try:
+                    old_delay = self._auto_reconnect_timedelay_dict[server_name]
+                    if old_delay > 30:
+                        self._auto_reconnect_timedelay_dict[server_name] = 30
+                except KeyError:
+                    old_delay = self._auto_reconnect_timedelay_dict[server_name] = 0
 
-            time.sleep(old_delay)
+                time.sleep(old_delay)
 
-            lock = self._auto_reconnect_lock_dict[server_name]
-            lock.acquire()
-            try:
-                if server_name not in self._user_dict.keys():
-                    self.conncet(server_name, ip, port, password)
-                    self._auto_reconnect_timedelay_dict[server_name] = 0
-            except ConnectionRefusedError:
-                self._log.log_info("{0}: \033[0;36;41mRe Connect Failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
-                self._auto_reconnect_timedelay_dict[server_name] += 5
-            finally:
-                lock.release()
+                lock = self._auto_reconnect_lock_dict[server_name]
+                lock.acquire()
+                try:
+                    if server_name not in self._user_dict.keys():
+                        self.conncet(server_name, ip, port, password)
+                        self._auto_reconnect_timedelay_dict[server_name] = 0
+                        break
+                    else:
+                        self._log.log_info("{} is already connect..".format(server_name))
+                        break
+                except Exception as err:
+                # except ConnectionRefusedError:
+                    # except connect all err was in this
+                    self._log.log_info("{0}: \033[0;36;41mRe Connect Failed:\033[0m {1} {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name, err))
+                    self._auto_reconnect_timedelay_dict[server_name] += 5
+                finally:
+                    lock.release()
 
         def server():
             while True:
