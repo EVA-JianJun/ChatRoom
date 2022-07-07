@@ -89,12 +89,7 @@ class Server():
         self.port = port
         self.password = password
 
-        if not encryption:
-            # 不使用加密
-            self._recv_fun_encrypt = self._recv_fun
-            self._send_fun_encrypt = self._send_fun
-            self._recv_fun_encrypt_s = self._recv_fun_s
-            self._send_fun_encrypt_s = self._send_fun_s
+        self.encryption = encryption
 
         if not blacklist:
             self.blacklist = []
@@ -126,6 +121,8 @@ class Server():
         self._user_dict = {}
 
         self.ip_err_times_dict = {}
+
+        self.is_encryption_dict = {}
 
         self._connect_timeout_sock_set = set()
 
@@ -199,9 +196,17 @@ class Server():
             sock.close()
             return
 
-        self._send_fun_s(sock, self._encrypt.pubkey)
-
-        client_name, client_password = self._recv_fun_encrypt_s(sock)
+        if client_pubkey == "NOT_ENCRYPTION" or not self.encryption:
+            # 如果客户端不加密,那么服务端不加密
+            # 如果服务端不加密,客户端也不加密
+            self._send_fun_s(sock, "NOT_ENCRYPTION")
+            client_name, client_password = self._recv_fun_s(sock)
+            self._log.log_info_warning_format("WARNING", "NOT_ENCRYPTION")
+            self.is_encryption_dict[client_name] = False
+        else:
+            self._send_fun_s(sock, self._encrypt.pubkey)
+            client_name, client_password = self._recv_fun_encrypt_s(sock)
+            self.is_encryption_dict[client_name] = True
 
         try:
             self._user_dict[client_name]
@@ -468,6 +473,7 @@ class Server():
             raise err
 
     def _send_fun_encrypt_s(self, sock, data):
+        # NOTE 这个函数现在暂时未使用,如果使用要考虑到为加密端对加密端的兼容问题
         try:
             ds = pickle.dumps(data)
 
@@ -543,8 +549,9 @@ class Server():
                 # 原来的补充剩余的
                 data_bytes += buff
 
-            rsaDecrypt_data_bytes = self._encrypt.rsaDecrypt(data_bytes)
-            func_args_dict = pickle.loads(rsaDecrypt_data_bytes)
+            if self.is_encryption_dict[client_name]:
+                data_bytes = self._encrypt.rsaDecrypt(data_bytes)
+            func_args_dict = pickle.loads(data_bytes)
 
             return func_args_dict
         except Exception as err:
@@ -558,7 +565,8 @@ class Server():
             sock = self._user_dict[client_name]["sock"]
             ds = pickle.dumps(data)
 
-            ds = self._encrypt.encrypt_user(ds, self._user_dict[client_name]["pubkey"])
+            if self.is_encryption_dict[client_name]:
+                ds = self._encrypt.encrypt_user(ds, self._user_dict[client_name]["pubkey"])
 
             len_n = '{:14}'.format(len(ds)).encode()
 
@@ -621,8 +629,10 @@ class Client():
         self.client_name = client_name
         self.client_password = client_password
 
+        self.encryption = encryption
         if not encryption:
-            # 不使用加密
+            # 不使用加密,全局不加密
+            # 如果客户端加密,那么客户端会根据服务端的加密情况自动兼容
             self._recv_fun_encrypt = self._recv_fun
             self._send_fun_encrypt = self._send_fun
 
@@ -633,6 +643,8 @@ class Client():
         self.recv_get_info_queue = queue.Queue()
 
         self.get_callback_func_dict = {}
+
+        self.is_encryption_dict = {}
 
         self.user = User()
 
@@ -676,8 +688,18 @@ class Client():
         self._user_dict[server_name]["can_heartbeat_flag"] = False
         self._user_dict[server_name]["sock"] = sock
 
-        self._send_fun(server_name, self._encrypt.pubkey)
-        self._user_dict[server_name]["pubkey"] = self._recv_fun(server_name)
+        if self.encryption:
+            self._send_fun(server_name, self._encrypt.pubkey)
+        else:
+            self._send_fun(server_name, "NOT_ENCRYPTION")
+
+        server_pubkey = self._recv_fun(server_name)
+        if server_pubkey == "NOT_ENCRYPTION":
+            self._log.log_info_warning_format("WARNING", "NOT_ENCRYPTION")
+            self.is_encryption_dict[server_name] = False
+        else:
+            self.is_encryption_dict[server_name] = True
+        self._user_dict[server_name]["pubkey"] = server_pubkey
 
         exec('self.user.{0} = Node("{0}", self)'.format(server_name))
 
@@ -961,8 +983,9 @@ class Client():
                 # 原来的补充剩余的
                 data_bytes += buff
 
-            rsaDecrypt_data_bytes = self._encrypt.rsaDecrypt(data_bytes)
-            func_args_dict = pickle.loads(rsaDecrypt_data_bytes)
+            if self.is_encryption_dict[server_name]:
+                data_bytes = self._encrypt.rsaDecrypt(data_bytes)
+            func_args_dict = pickle.loads(data_bytes)
 
             return func_args_dict
         except Exception as err:
@@ -976,7 +999,8 @@ class Client():
             sock = self._user_dict[server_name]["sock"]
             ds = pickle.dumps(data)
 
-            ds = self._encrypt.encrypt_user(ds, self._user_dict[server_name]["pubkey"])
+            if self.is_encryption_dict[server_name]:
+                ds = self._encrypt.encrypt_user(ds, self._user_dict[server_name]["pubkey"])
 
             len_n = '{:14}'.format(len(ds)).encode()
 

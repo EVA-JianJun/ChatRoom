@@ -28,6 +28,9 @@ class Log():
         else:
             self.log_info("{0} | \033[0;36;42m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))
 
+    def log_info_warning_format(self, title, info):
+            self.log_info("{0} | \033[0;36;44m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))
+
     def log_format(self, title, info, err=False):
         if err:
             self.log("{0} | \033[0;36;41m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))

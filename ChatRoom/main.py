@@ -127,7 +127,6 @@ class Room():
                     elif cmd == "CMD_GET_USER_NAPW_INFO":
                         # ['Alice', 'CMD_GET_USER_NAPW_INFO']
                         exec("self.user.{0}.send(['user_napw_info', self.user_napw_info])".format(user))
-
                 except Exception as err:
                     traceback.print_exc()
                     print(err)
