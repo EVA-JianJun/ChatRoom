@@ -383,3 +383,5 @@
     print(S.user.Foo.get("test", "Hello world!"))
     print(C.user.Baz.get("test", "Hello world!"))
 
+## 更新记录
+1.2022.07.07 Release V1.1.2 1.增加权限控制 2.优化输出 3.优化调度效率

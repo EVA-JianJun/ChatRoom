@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import time
+import copy
 import queue
 import random
 import string
@@ -110,7 +111,7 @@ class Room():
                     recv_data = recv_info_queue.get()
                     # [usr, [cmd, xxx, xxx]]
                     # DEBUG
-                    print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "recv:", recv_data)
+                    # print("{0} recv: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                     user = recv_data[0]
                     cmd = recv_data[1][0]
                     if cmd == "Forwarding":
@@ -130,7 +131,7 @@ class Room():
                 except Exception as err:
                     traceback.print_exc()
                     print(err)
-                    self._log.log_info("{0}: \033[0;36;41mRuntime Err:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+                    self._log.log_info_format("Runtime Err 1", recv_data, True)
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
@@ -139,13 +140,29 @@ class Room():
     def _user_information_processing(self):
 
         def sub():
+            old_user_info_dict = {}
             while True:
                 time.sleep(10)
+                if old_user_info_dict == self._user_info_dict:
+                    continue
                 try:
                     for user_a, user_b in itertools.combinations(self._user_info_dict, 2):
                         # print(user_a, user_b)
                         user_info_a = self._user_info_dict[user_a]
                         user_info_b = self._user_info_dict[user_b]
+
+                        if user_b in self._user_info_dict[user_a]['black_list']:
+                            continue
+                        if user_a in self._user_info_dict[user_b]['black_list']:
+                            continue
+
+                        if self._user_info_dict[user_a]['white_list']:
+                            if user_b not in self._user_info_dict[user_a]['white_list']:
+                                continue
+                        if self._user_info_dict[user_b]['white_list']:
+                            if user_a not in self._user_info_dict[user_b]['white_list']:
+                                continue
+
                         if user_info_a['lan_id'] == user_info_b['lan_id']:
                             # 同一局域网, 局域网互联, a连接b
                             #       cmd               name,                      ip,                port,             password
@@ -175,11 +192,11 @@ class Room():
 
                                 self._relay_connect_user_info_dict[user_a].add(user_b)
                                 self._relay_connect_user_info_dict[user_b].add(user_a)
-
+                    old_user_info_dict = copy.deepcopy(self._user_info_dict)
                 except Exception as err:
                     traceback.print_exc()
                     print(err)
-                    self._log.log_info("{0}: \033[0;36;41mRuntime Err:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+                    self._log.log_info_format("Runtime Err 2", "user_information_processing", True)
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
@@ -187,7 +204,7 @@ class Room():
 
 class User():
 
-    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True):
+    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True, white_list=[], black_list=[]):
         """
         文档:
             创建一个聊天室用户
@@ -221,7 +238,10 @@ class User():
                 密码位数, 默认16位
             encryption : bool(default True)
                 是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
-
+            white_list : str (Default: [])
+                白名单 : 如果设置白名单,只有白名单内的用户可以连接
+            black_list : str (Default: [])
+                黑名单 : 如果设置黑名单,黑名单内的用户不可连接
         例子:
             import ChatRoom
 
@@ -246,6 +266,8 @@ class User():
         self.room_port = room_port
         self.room_password = room_password
         self.encryption = encryption
+        self.white_list = white_list
+        self.black_list = black_list
 
         self._log = Log(log)
 
@@ -297,7 +319,7 @@ class User():
 
     def _relay_connect(self, to_user_name):
 
-        self._log.log_info("{0}: \033[0;36;42mRelay Connecty:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), to_user_name))
+        self._log.log_info_format("Relay Connecty", to_user_name)
         exec("self.user.{0} = Rely_Node(to_user_name, self)".format(to_user_name))
         self._relay_connect_name_set.add(to_user_name)
 
@@ -320,6 +342,8 @@ class User():
                     "password" :  self.server_password,
                     "is_public_network" : self.is_public_network,
                     "lan_id" : self.lan_id,
+                    "white_list" : self.white_list,
+                    "black_list" : self.black_list,
                 },
             ]
         )
@@ -328,11 +352,11 @@ class User():
 
         exec("del self.user.{0}".format(to_user_name))
         self._relay_connect_name_set.remove(to_user_name)
-        self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), to_user_name, "relay offline!"))
+        self._log.log_info_format("Relay Offline", to_user_name, True)
 
     def _connect(self, server_name, ip, port, password):
 
-        self._log.log_info("{0}: \033[0;36;42mConnecty:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+        self._log.log_info_format("Connecty", server_name)
         self.client.conncet(server_name , ip, port, password)
 
     def _random_password(self, password_digits):
@@ -395,7 +419,7 @@ class User():
                 except Exception as err:
                     traceback.print_exc()
                     print(err)
-                    self._log.log_info("{0}: \033[0;36;41mRuntime Err:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+                    self._log.log_info_format("Runtime Err 3", recv_data)
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
 
 class Log():
 
@@ -20,3 +21,15 @@ class Log():
             # DEBUG
             self.log = print
             self.log_info = print
+
+    def log_info_format(self, title, info, err=False):
+        if err:
+            self.log_info("{0} | \033[0;36;41m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))
+        else:
+            self.log_info("{0} | \033[0;36;42m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))
+
+    def log_format(self, title, info, err=False):
+        if err:
+            self.log("{0} | \033[0;36;41m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))
+        else:
+            self.log("{0} | \033[0;36;42m{1:^25}\033[0m | {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), title, info))

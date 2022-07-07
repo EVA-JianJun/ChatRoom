@@ -166,7 +166,7 @@ class Server():
 
             self.port = self._sock.getsockname()[1]
 
-            self._log.log_info("等待用户连接..")
+            self._log.log_info_format("Sucess", "等待用户连接..")
             while True:
                 try:
                     sock, addr = self._sock.accept()
@@ -190,7 +190,7 @@ class Server():
             self._blacklist(sock, addr)
             return
 
-        self._log.log_info("{0}: \033[0;36;42mConnect:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), addr))
+        self._log.log_info_format("Connect", addr)
 
         try:
             client_pubkey = self._recv_fun_s(sock)
@@ -205,7 +205,7 @@ class Server():
 
         try:
             self._user_dict[client_name]
-            self._log.log_info("{0}: \033[0;36;41mclient name repeat:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
+            self._log.log_info_format("client name repeat", client_name, True)
             sock.close()
             return
         except KeyError:
@@ -218,12 +218,12 @@ class Server():
 
         password = self._recv_fun_encrypt(client_name)
         if password != self.password:
-            self._log.log_info("{0}: \033[0;36;41mVerified failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
+            self._log.log_info_format("Verified failed", client_name, True)
             self._password_err(client_name)
             self._ip_err_callback(addr)
             return
         else:
-            self._log.log_info("{0}: \033[0;36;42mVerified successfully:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
+            self._log.log_info_format("Verified successfully", client_name)
             self._password_correct(client_name)
 
         if self.user_napw_info:
@@ -231,21 +231,21 @@ class Server():
             if hashed:
                 ret = bcrypt.checkpw(client_password.encode(), hashed)
                 if not ret:
-                    self._log.log_info("{0}: \033[0;36;41mLogin failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
-                    self._log.log("User password is wrong!")
+                    self._log.log_info_format("Login failed", client_name, True)
+                    self._log.log_format("_tcplink", "User password is wrong!", True)
                     self._login_err(client_name)
                     self._ip_err_callback(addr)
                     return
             else:
-                self._log.log_info("{0}: \033[0;36;41mLogin failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
-                self._log.log("User does not exist!")
+                self._log.log_info_format("Login failed", client_name, True)
+                self._log.log_format("_tcplink", "User does not exist!", True)
                 self._login_err(client_name)
                 self._ip_err_callback(addr)
                 return
         else:
-            self._log.log("Client information is not set! Use user_napw_info to set!")
+            self._log.log_format("_tcplink", "Client information is not set! Use user_napw_info to set!")
 
-        self._log.log_info("{0}: \033[0;36;42mLogin successfully:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name))
+        self._log.log_info_format("Login successfully", client_name)
         self._login_correct(client_name)
         self._connect_end()
 
@@ -276,7 +276,7 @@ class Server():
                         else:
                             self.recv_info_queue.put([client_name, recv_data])
             except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), client_name, err))
+                self._log.log_info_format("Offline", "{0} {1}".format(client_name, err), True)
                 try:
                     self._disconnect_user_fun(client_name)
                 except Exception as err:
@@ -316,7 +316,7 @@ class Server():
 
     def _ip_err_callback(self, addr):
 
-        self._log.log_info("{0}: \033[0;36;41mIP Err:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), addr))
+        self._log.log_info_format("IP Err", addr, True)
         ip = addr[0]
         try:
             self.ip_err_times_dict[ip] += 1
@@ -364,39 +364,39 @@ class Server():
         sub_th.start()
 
     def _connect_end(self):
-        self._log.log("_connect_end")
+        self._log.log_format("_connect_end", "connect_end")
 
     def _disconnect(self, client_name):
-        self._log.log("_disconnect")
+        self._log.log_format("_disconnect", "disconnect", True)
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _password_err(self, client_name):
-        self._log.log("_password_err")
+        self._log.log_format("_password_err", "password_err", True)
         self._send_fun_encrypt(client_name, "t%fgDYJdI35NJKS")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _password_correct(self, client_name):
-        self._log.log("_password_correct")
+        self._log.log_format("_password_correct", "password_correct")
         self._send_fun_encrypt(client_name, "YES")
 
     def _login_err(self, client_name):
-        self._log.log("_login_err")
+        self._log.log_format("_login_err", "login_err", True)
         self._send_fun_encrypt(client_name, "Jif43DF$dsg")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _login_correct(self, client_name):
-        self._log.log("_login_correct")
+        self._log.log_format("_login_correct", "login_correct")
         self._send_fun_encrypt(client_name, "YES")
 
     def _blacklist(self, sock, addr):
-        self._log.log_info("{0}: \033[0;36;41mBlacklist Ban:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), addr))
-        self._log.log("_blacklist")
+        self._log.log_info_format("Blacklist Ban", addr, True)
+        self._log.log_format("_blacklist", "blacklist", True)
         sock.close()
 
     def _recv_fun_s(self, sock):
@@ -421,7 +421,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log("_disconnect")
+            self._log.log_format("_recv_fun_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -436,7 +436,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log("_disconnect")
+            self._log.log_format("_send_fun_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -463,7 +463,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log("_disconnect")
+            self._log.log_format("_recv_fun_encrypt_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -481,7 +481,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log("_disconnect")
+            self._log.log_format("_send_fun_encrypt_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -671,7 +671,7 @@ class Client():
             sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 60000, 30000))
 
         sock.connect((ip, port))
-        self._log.log_info("{0}: \033[0;36;42mConnect:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+        self._log.log_info_format("Connect", server_name)
         self._user_dict[server_name] = {}
         self._user_dict[server_name]["can_heartbeat_flag"] = False
         self._user_dict[server_name]["sock"] = sock
@@ -686,19 +686,19 @@ class Client():
 
         connect_code = self._recv_fun_encrypt(server_name)
         if connect_code == "YES":
-            self._log.log_info("{0}: \033[0;36;42mVerified successfully:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+            self._log.log_info_format("Verified successfully", server_name)
             self._password_correct()
         else:
-            self._log.log_info("{0}: \033[0;36;41mVerified failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+            self._log.log_info_format("Verified failed", server_name, True)
             self._password_err(server_name)
             return
 
         login_code = self._recv_fun_encrypt(server_name)
         if login_code == "YES":
-            self._log.log_info("{0}: \033[0;36;42mLogin successfully:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+            self._log.log_info_format("Login successfully", server_name)
             self._login_correct()
         else:
-            self._log.log_info("{0}: \033[0;36;41mLogin failed:\033[0m {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name))
+            self._log.log_info_format("Login failed", server_name, True)
             self._login_err(server_name)
             return
 
@@ -743,12 +743,12 @@ class Client():
                         self._auto_reconnect_timedelay_dict[server_name] = 0
                         break
                     else:
-                        self._log.log_info("{} is already connect..".format(server_name))
+                        self._log.log_info_format("already connect", server_name)
                         break
                 except Exception as err:
                 # except ConnectionRefusedError:
                     # except connect all err was in this
-                    self._log.log_info("{0}: \033[0;36;41mRe Connect Failed:\033[0m {1} {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name, err))
+                    self._log.log_info_format("Re Connect Failed", "{0} {1}".format(server_name, err), True)
                     self._auto_reconnect_timedelay_dict[server_name] += 5
                 finally:
                     lock.release()
@@ -831,7 +831,7 @@ class Client():
                             else:
                                 self.recv_info_queue.put([server_name, recv_data])
                 except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                    self._log.log_info("{0}: {1} \033[0;36;41mOffline!\033[0m {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), server_name, err))
+                    self._log.log_info_format("Offline", "{0} {1}".format(server_name, err), True)
                     try:
                         self._disconnect_user_fun()
                     except Exception as err:
@@ -877,31 +877,31 @@ class Client():
         sub_th.start()
 
     def _connect_end(self):
-        self._log.log("_connect_end")
+        self._log.log_format("_connect_end", "connect_end")
 
     def _disconnect(self, server_name):
-        self._log.log("_disconnect")
+        self._log.log_format("_disconnect", "disconnect", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _password_err(self, server_name):
-        self._log.log("_password_err")
+        self._log.log_format("_password_err", "password_err", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _password_correct(self):
-        self._log.log("_password_correct")
+        self._log.log_format("_password_correct", "password_correct")
 
     def _login_err(self, server_name):
-        self._log.log("_login_err")
+        self._log.log_format("_login_err", "login_err", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _login_correct(self):
-        self._log.log("_login_correct")
+        self._log.log_format("_login_correct", "login_correct")
 
     def _recv_fun(self, server_name):
         try:
