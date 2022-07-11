@@ -210,7 +210,7 @@ class Server():
 
         try:
             self._user_dict[client_name]
-            self._log.log_info_format("client name repeat", client_name, True)
+            self._log.log_info_format_err("client name repeat", client_name)
             sock.close()
             return
         except KeyError:
@@ -223,7 +223,7 @@ class Server():
 
         password = self._recv_fun_encrypt(client_name)
         if password != self.password:
-            self._log.log_info_format("Verified failed", client_name, True)
+            self._log.log_info_format_err("Verified failed", client_name)
             self._password_err(client_name)
             self._ip_err_callback(addr)
             return
@@ -236,14 +236,14 @@ class Server():
             if hashed:
                 ret = bcrypt.checkpw(client_password.encode(), hashed)
                 if not ret:
-                    self._log.log_info_format("Login failed", client_name, True)
-                    self._log.log_debug_format("_tcplink", "User password is wrong!", True)
+                    self._log.log_info_format_err("Login failed", client_name)
+                    self._log.log_debug_format_err("_tcplink", "User password is wrong!")
                     self._login_err(client_name)
                     self._ip_err_callback(addr)
                     return
             else:
-                self._log.log_info_format("Login failed", client_name, True)
-                self._log.log_debug_format("_tcplink", "User does not exist!", True)
+                self._log.log_info_format_err("Login failed", client_name)
+                self._log.log_debug_format_err("_tcplink", "User does not exist!")
                 self._login_err(client_name)
                 self._ip_err_callback(addr)
                 return
@@ -275,7 +275,7 @@ class Server():
                 elif cmd == "CMD_heartbeat_END":
                     continue
             except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                self._log.log_info_format("Offline", "{0} {1}".format(client_name, err), True)
+                self._log.log_info_format_err("Offline", "{0} {1}".format(client_name, err))
                 try:
                     self._disconnect_user_fun(client_name)
                 except Exception as err:
@@ -291,14 +291,35 @@ class Server():
 
     def _get_event_callback_server(self):
         def server():
+
+            def do_user_func_th(client_name, callback_func, data, uuid_id):
+                try:
+                    result = callback_func(data)
+                    self.send(client_name, ["CMD_REGET", uuid_id, result])
+                except Exception as err:
+                    print("{0}: \033[0;36;41mClient 处理get任务线程错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    traceback.print_exc()
+                    print(err)
+
             while True:
                 try:
-                    # client_name ["CMD_GET", uuid_id, get_name, data]
+                    # client_name, ["CMD_GET", uuid_id, get_name, data]
                     client_name, recv_data = self.recv_get_info_queue.get()
-                    result = self.get_callback_func_dict.get(recv_data[2], self._default_get_event_callback_func)(recv_data[3])
-                    self.send(client_name, ["CMD_REGET", recv_data[1], result])
+                    _, uuid_id, get_name, data = recv_data
+
+                    try:
+                        callback_func = self.get_callback_func_dict[get_name]
+
+                        # 并发处理get请求
+                        sub_th = threading.Thread(target=do_user_func_th, args=(client_name, callback_func, data, uuid_id))
+                        sub_th.setDaemon(True)
+                        sub_th.start()
+
+                    except KeyError:
+                        result = self._default_get_event_callback_func(data)
+                        self.send(client_name, ["CMD_REGET", uuid_id, result])
                 except Exception as err:
-                    print("{0}: \033[0;36;41mServer 处理get任务错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    print("{0}: \033[0;36;41mClient 处理get任务错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
                     print(err)
 
@@ -315,7 +336,7 @@ class Server():
 
     def _ip_err_callback(self, addr):
 
-        self._log.log_info_format("IP Err", addr, True)
+        self._log.log_info_format_err("IP Err", addr)
         ip = addr[0]
         try:
             self.ip_err_times_dict[ip] += 1
@@ -328,8 +349,8 @@ class Server():
     def default_callback_server(self):
         def sub():
             while True:
-                recv_data = self.recv_info_queue.get()
-                print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "recv:", recv_data)
+                from_user, recv_data = self.recv_info_queue.get()
+                print("{0} from {1} recv: {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), from_user, recv_data))
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
@@ -366,13 +387,13 @@ class Server():
         self._log.log_debug_format("_connect_end", "connect_end")
 
     def _disconnect(self, client_name):
-        self._log.log_debug_format("_disconnect", "disconnect", True)
+        self._log.log_debug_format_err("_disconnect", "disconnect")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _password_err(self, client_name):
-        self._log.log_debug_format("_password_err", "password_err", True)
+        self._log.log_debug_format_err("_password_err", "password_err")
         self._send_fun_encrypt(client_name, "t%fgDYJdI35NJKS")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
@@ -383,7 +404,7 @@ class Server():
         self._send_fun_encrypt(client_name, "YES")
 
     def _login_err(self, client_name):
-        self._log.log_debug_format("_login_err", "login_err", True)
+        self._log.log_debug_format_err("_login_err", "login_err")
         self._send_fun_encrypt(client_name, "Jif43DF$dsg")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
@@ -394,8 +415,8 @@ class Server():
         self._send_fun_encrypt(client_name, "YES")
 
     def _blacklist(self, sock, addr):
-        self._log.log_info_format("Blacklist Ban", addr, True)
-        self._log.log_debug_format("_blacklist", "blacklist", True)
+        self._log.log_info_format_err("Blacklist Ban", addr)
+        self._log.log_debug_format_err("_blacklist", "blacklist")
         sock.close()
 
     def _recv_fun_s(self, sock):
@@ -420,7 +441,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_debug_format("_recv_fun_s", "disconnect", True)
+            self._log.log_debug_format_err("_recv_fun_s", "disconnect")
             sock.close()
             raise err
 
@@ -435,7 +456,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_debug_format("_send_fun_s", "disconnect", True)
+            self._log.log_debug_format_err("_send_fun_s", "disconnect")
             sock.close()
             raise err
 
@@ -462,7 +483,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_debug_format("_recv_fun_encrypt_s", "disconnect", True)
+            self._log.log_debug_format_err("_recv_fun_encrypt_s", "disconnect")
             sock.close()
             raise err
 
@@ -481,7 +502,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_debug_format("_send_fun_encrypt_s", "disconnect", True)
+            self._log.log_debug_format_err("_send_fun_encrypt_s", "disconnect")
             sock.close()
             raise err
 
@@ -705,7 +726,7 @@ class Client():
             self._log.log_info_format("Verified successfully", server_name)
             self._password_correct()
         else:
-            self._log.log_info_format("Verified failed", server_name, True)
+            self._log.log_info_format_err("Verified failed", server_name)
             self._password_err(server_name)
             return
 
@@ -714,7 +735,7 @@ class Client():
             self._log.log_info_format("Login successfully", server_name)
             self._login_correct()
         else:
-            self._log.log_info_format("Login failed", server_name, True)
+            self._log.log_info_format_err("Login failed", server_name)
             self._login_err(server_name)
             return
 
@@ -764,7 +785,7 @@ class Client():
                 except Exception as err:
                 # except ConnectionRefusedError:
                     # except connect all err was in this
-                    self._log.log_info_format("Re Connect Failed", "{0} {1}".format(server_name, err), True)
+                    self._log.log_info_format_err("Re Connect Failed", "{0} {1}".format(server_name, err))
                     self._auto_reconnect_timedelay_dict[server_name] += 5
                 finally:
                     lock.release()
@@ -841,7 +862,7 @@ class Client():
                     elif cmd == "CMD_heartbeat_END":
                         continue
                 except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                    self._log.log_info_format("Offline", "{0} {1}".format(server_name, err), True)
+                    self._log.log_info_format_err("Offline", "{0} {1}".format(server_name, err))
                     try:
                         self._disconnect_user_fun()
                     except Exception as err:
@@ -854,19 +875,40 @@ class Client():
         sub_th.start()
 
     def _default_get_event_callback_func(self, data):
-        return ["default", data]
+        return ["Undefined", data]
 
     def register_get_event_callback_func(self, get_name, func):
         self.get_callback_func_dict[get_name] = func
 
     def _get_event_callback_server(self):
         def server():
+
+            def do_user_func_th(client_name, callback_func, data, uuid_id):
+                try:
+                    result = callback_func(data)
+                    self.send(client_name, ["CMD_REGET", uuid_id, result])
+                except Exception as err:
+                    print("{0}: \033[0;36;41mClient 处理get任务线程错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    traceback.print_exc()
+                    print(err)
+
             while True:
                 try:
-                    # client_name ["CMD_GET", uuid_id, get_name, data]
+                    # client_name, ["CMD_GET", uuid_id, get_name, data]
                     client_name, recv_data = self.recv_get_info_queue.get()
-                    result = self.get_callback_func_dict.get(recv_data[2], self._default_get_event_callback_func)(recv_data[3])
-                    self.send(client_name, ["CMD_REGET", recv_data[1], result])
+                    _, uuid_id, get_name, data = recv_data
+
+                    try:
+                        callback_func = self.get_callback_func_dict[get_name]
+
+                        # 并发处理get请求
+                        sub_th = threading.Thread(target=do_user_func_th, args=(client_name, callback_func, data, uuid_id))
+                        sub_th.setDaemon(True)
+                        sub_th.start()
+
+                    except KeyError:
+                        result = self._default_get_event_callback_func(data)
+                        self.send(client_name, ["CMD_REGET", uuid_id, result])
                 except Exception as err:
                     print("{0}: \033[0;36;41mClient 处理get任务错误!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
@@ -879,8 +921,8 @@ class Client():
     def default_callback_server(self):
         def sub():
             while True:
-                recv_data = self.recv_info_queue.get()
-                print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "recv:", recv_data)
+                from_user, recv_data = self.recv_info_queue.get()
+                print("{0} from {1} recv: {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), from_user, recv_data))
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)
@@ -890,13 +932,13 @@ class Client():
         self._log.log_debug_format("_connect_end", "connect_end")
 
     def _disconnect(self, server_name):
-        self._log.log_debug_format("_disconnect", "disconnect", True)
+        self._log.log_debug_format_err("_disconnect", "disconnect")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _password_err(self, server_name):
-        self._log.log_debug_format("_password_err", "password_err", True)
+        self._log.log_debug_format_err("_password_err", "password_err")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
@@ -905,7 +947,7 @@ class Client():
         self._log.log_debug_format("_password_correct", "password_correct")
 
     def _login_err(self, server_name):
-        self._log.log_debug_format("_login_err", "login_err", True)
+        self._log.log_debug_format_err("_login_err", "login_err")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
@@ -1050,8 +1092,8 @@ def get_host_ip():
     return ip
 
 if __name__ == "__main__":
-    # Server
-    S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
+    # ============================================== Server ==============================================
+    server = Server("127.0.0.1", 12345, password="abc123", log="INFO",
             # user_napw_info={
             #     "Foo" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
             #     "Bar" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
@@ -1059,31 +1101,65 @@ if __name__ == "__main__":
             # blacklist = ["192.168.0.10"],
             )
 
-    S.default_callback_server()
-
-    # Client
-    C = Client("Foo", "123456", log="INFO", auto_reconnect=True)
-
-    C.default_callback_server()
-
-    C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
-
-    # send info
-    S.user.Foo.send("Hello world!")
-    C.user.Baz.send("Hello world!")
-
     def server_test_get_callback_func(data):
         # do something
+        if isinstance(data, int):
+            time.sleep(data)
         return ["server test", data]
+
+    # register get callback func
+    server.register_get_event_callback_func("test", server_test_get_callback_func)
+    # run send recv callback server
+    server.default_callback_server()
+
+    # ============================================== Client_1 ============================================
+    client_1 = Client("Foo", "123456", log="INFO", auto_reconnect=True)
 
     def client_test_get_callback_func(data):
         # do something
+        if isinstance(data, int):
+            time.sleep(data)
         return ["client test", data]
 
-    # register callback func
-    S.register_get_event_callback_func("test", server_test_get_callback_func)
-    C.register_get_event_callback_func("test", client_test_get_callback_func)
+    # register get callback func
+    client_1.register_get_event_callback_func("test", client_test_get_callback_func)
+    # run send recv callback server
+    client_1.default_callback_server()
+
+    # connect
+    client_1.conncet("Server" ,"127.0.0.1", 12345, password="abc123")
+
+    # ============================================== Client_2 ============================================
+    client_2 = Client("Bar", "123456", log="INFO", auto_reconnect=True)
+
+    def client_test_get_callback_func(data):
+        # do something
+        if isinstance(data, int):
+            time.sleep(data)
+        return ["client test", data]
+
+    # register get callback func
+    client_2.register_get_event_callback_func("test", client_test_get_callback_func)
+    # run send recv callback server
+    client_2.default_callback_server()
+
+    # connect
+    client_2.conncet("Server" ,"127.0.0.1", 12345, password="abc123")
+
+    # ============================================== Test ==============================================
+    # send info
+    server.user.Foo.send("Hello world!")
+    client_1.user.Server.send("Hello world!")
+    client_2.user.Server.send("Hello world!")
 
     # get info
-    print(S.user.Foo.get("test", "Hello world!"))
-    print(C.user.Baz.get("test", "Hello world!"))
+    print(client_1.user.Server.get("test", "Hello world!"))
+    print(client_2.user.Server.get("test", "Hello world!"))
+
+    st = time.time()
+    print(client_1.user.Server.get("test", 3))
+    print(time.time() - st)
+
+    st = time.time()
+    print(client_2.user.Server.get("test", 5))
+    print(time.time() - st)
