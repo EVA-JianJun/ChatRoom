@@ -50,7 +50,7 @@ class Room():
             blacklist : list (Default: [])
                 ip黑名单, 在这个列表中的ip会被聊天室集群拉黑
             encryption : bool(default True)
-                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
+                是否加密传输, 不加密效率较高
 
         例子:
             # 启动一个聊天室
@@ -236,7 +236,7 @@ class User():
             password_digits : int (Default: 16)
                 密码位数, 默认16位
             encryption : bool(default True)
-                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
+                是否加密传输, 不加密效率较高
             white_list : str (Default: [])
                 白名单 : 如果设置白名单,只有白名单内的用户可以连接
             black_list : str (Default: [])

@@ -26,9 +26,9 @@ class Node():
 
     def send(self, data):
 
-        self.master.send(self.name, data)
+        self.master.send(self.name, ["CMD_SEND", data])
 
-    def get(self, get_name, data, timeout=5):
+    def get(self, get_name, data, timeout=60):
 
         uuid_id = uuid.uuid1()
         self.master.send(self.name, ["CMD_GET", uuid_id, get_name, data])
@@ -69,7 +69,7 @@ class Server():
             blacklist : list
                 ip黑名单, 在这个列表中的ip无法连接服务端
             encryption : bool(default True)
-                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
+                是否加密传输, 不加密效率较高
 
         例子:
             # Server
@@ -143,7 +143,7 @@ class Server():
                 try:
                     for server_name in self._user_dict.keys():
                         if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, "CMD_heartbeat_END")
+                            self.send(server_name, ["CMD_heartbeat_END"])
                 except Exception as err:
                     print("{0}: \033[0;36;41mServer 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
@@ -237,18 +237,18 @@ class Server():
                 ret = bcrypt.checkpw(client_password.encode(), hashed)
                 if not ret:
                     self._log.log_info_format("Login failed", client_name, True)
-                    self._log.log_format("_tcplink", "User password is wrong!", True)
+                    self._log.log_debug_format("_tcplink", "User password is wrong!", True)
                     self._login_err(client_name)
                     self._ip_err_callback(addr)
                     return
             else:
                 self._log.log_info_format("Login failed", client_name, True)
-                self._log.log_format("_tcplink", "User does not exist!", True)
+                self._log.log_debug_format("_tcplink", "User does not exist!", True)
                 self._login_err(client_name)
                 self._ip_err_callback(addr)
                 return
         else:
-            self._log.log_format("_tcplink", "Client information is not set! Use user_napw_info to set!")
+            self._log.log_debug_format("_tcplink", "Client information is not set! Use user_napw_info to set!")
 
         self._log.log_info_format("Login successfully", client_name)
         self._login_correct(client_name)
@@ -261,25 +261,19 @@ class Server():
         while True:
             try:
                 recv_data = self._recv_fun_encrypt(client_name)
-                if recv_data == "CMD_heartbeat_END":
+                cmd = recv_data[0]
+                if cmd == "CMD_SEND":
+                    # send ["CMD_SEND", data]
+                    self.recv_info_queue.put([client_name, recv_data[1]])
+                elif cmd == "CMD_GET":
+                    # process ["CMD_GET", uuid_id, get_name, data]
+                    self.recv_get_info_queue.put([client_name, recv_data])
+                elif cmd == "CMD_REGET":
+                    # get result ["CMD_REGET", uuid_id, result_data]
+                    self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                    self.get_event_info_dict[recv_data[1]]["event"].set()
+                elif cmd == "CMD_heartbeat_END":
                     continue
-                else:
-                    try:
-                        cmd = recv_data[0]
-                    except Exception:
-                        # if recv_data not ["CMD_GET", uuid_id, get_name, data] type
-                        # if recv_data not ["CMD_REGET", uuid_id, data] type
-                        pass
-                    else:
-                        if cmd == "CMD_GET":
-                            # process ["CMD_GET", uuid_id, get_name, data]
-                            self.recv_get_info_queue.put([client_name, recv_data])
-                        elif cmd == "CMD_REGET":
-                            # get result ["CMD_REGET", uuid_id, data]
-                            self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
-                            self.get_event_info_dict[recv_data[1]]["event"].set()
-                        else:
-                            self.recv_info_queue.put([client_name, recv_data])
             except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                 self._log.log_info_format("Offline", "{0} {1}".format(client_name, err), True)
                 try:
@@ -369,39 +363,39 @@ class Server():
         sub_th.start()
 
     def _connect_end(self):
-        self._log.log_format("_connect_end", "connect_end")
+        self._log.log_debug_format("_connect_end", "connect_end")
 
     def _disconnect(self, client_name):
-        self._log.log_format("_disconnect", "disconnect", True)
+        self._log.log_debug_format("_disconnect", "disconnect", True)
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _password_err(self, client_name):
-        self._log.log_format("_password_err", "password_err", True)
+        self._log.log_debug_format("_password_err", "password_err", True)
         self._send_fun_encrypt(client_name, "t%fgDYJdI35NJKS")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _password_correct(self, client_name):
-        self._log.log_format("_password_correct", "password_correct")
+        self._log.log_debug_format("_password_correct", "password_correct")
         self._send_fun_encrypt(client_name, "YES")
 
     def _login_err(self, client_name):
-        self._log.log_format("_login_err", "login_err", True)
+        self._log.log_debug_format("_login_err", "login_err", True)
         self._send_fun_encrypt(client_name, "Jif43DF$dsg")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
         exec('del self.user.{0}'.format(client_name))
 
     def _login_correct(self, client_name):
-        self._log.log_format("_login_correct", "login_correct")
+        self._log.log_debug_format("_login_correct", "login_correct")
         self._send_fun_encrypt(client_name, "YES")
 
     def _blacklist(self, sock, addr):
         self._log.log_info_format("Blacklist Ban", addr, True)
-        self._log.log_format("_blacklist", "blacklist", True)
+        self._log.log_debug_format("_blacklist", "blacklist", True)
         sock.close()
 
     def _recv_fun_s(self, sock):
@@ -426,7 +420,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_format("_recv_fun_s", "disconnect", True)
+            self._log.log_debug_format("_recv_fun_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -441,7 +435,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_format("_send_fun_s", "disconnect", True)
+            self._log.log_debug_format("_send_fun_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -468,7 +462,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_format("_recv_fun_encrypt_s", "disconnect", True)
+            self._log.log_debug_format("_recv_fun_encrypt_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -487,7 +481,7 @@ class Server():
         except Exception as err:
             traceback.print_exc()
             print(err)
-            self._log.log_format("_send_fun_encrypt_s", "disconnect", True)
+            self._log.log_debug_format("_send_fun_encrypt_s", "disconnect", True)
             sock.close()
             raise err
 
@@ -613,7 +607,7 @@ class Client():
             reconnect_name_whitelist : list
                 如果reconnect_name_whitelist不为空, 则重新连接只会连接客户端名称在reconnect_name_whitelist里的服务端
             encryption : bool(default True)
-                是否加密传输, 不加密效率较高, 服务端和客户端必须同时开启或者关闭加密
+                是否加密传输, 不加密效率较高
 
         例子:
             # Client
@@ -804,7 +798,7 @@ class Client():
                 try:
                     for server_name in self._user_dict.keys():
                         if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, "CMD_heartbeat_END")
+                            self.send(server_name, ["CMD_heartbeat_END"])
                 except Exception as err:
                     print("{0}: \033[0;36;41mClient 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
@@ -833,25 +827,19 @@ class Client():
             while True:
                 try:
                     recv_data = self._recv_fun_encrypt(server_name)
-                    if recv_data == "CMD_heartbeat_END":
+                    cmd = recv_data[0]
+                    if cmd == "CMD_SEND":
+                        # send ["CMD_SEND", data]
+                        self.recv_info_queue.put([server_name, recv_data[1]])
+                    elif cmd == "CMD_GET":
+                        # process ["CMD_GET", uuid_id, get_name, data]
+                        self.recv_get_info_queue.put([server_name, recv_data])
+                    elif cmd == "CMD_REGET":
+                        # get result ["CMD_REGET", uuid_id, result_data]
+                        self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                        self.get_event_info_dict[recv_data[1]]["event"].set()
+                    elif cmd == "CMD_heartbeat_END":
                         continue
-                    else:
-                        try:
-                            cmd = recv_data[0]
-                        except Exception:
-                            # if recv_data not ["CMD_GET", uuid_id, get_name, data] type
-                            # if recv_data not ["CMD_REGET", uuid_id, data] type
-                            pass
-                        else:
-                            if cmd == "CMD_GET":
-                                # process ["CMD_GET", uuid_id, get_name, data]
-                                self.recv_get_info_queue.put([server_name, recv_data])
-                            elif cmd == "CMD_REGET":
-                                # get result ["CMD_REGET", uuid_id, data]
-                                self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
-                                self.get_event_info_dict[recv_data[1]]["event"].set()
-                            else:
-                                self.recv_info_queue.put([server_name, recv_data])
                 except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                     self._log.log_info_format("Offline", "{0} {1}".format(server_name, err), True)
                     try:
@@ -899,31 +887,31 @@ class Client():
         sub_th.start()
 
     def _connect_end(self):
-        self._log.log_format("_connect_end", "connect_end")
+        self._log.log_debug_format("_connect_end", "connect_end")
 
     def _disconnect(self, server_name):
-        self._log.log_format("_disconnect", "disconnect", True)
+        self._log.log_debug_format("_disconnect", "disconnect", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _password_err(self, server_name):
-        self._log.log_format("_password_err", "password_err", True)
+        self._log.log_debug_format("_password_err", "password_err", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _password_correct(self):
-        self._log.log_format("_password_correct", "password_correct")
+        self._log.log_debug_format("_password_correct", "password_correct")
 
     def _login_err(self, server_name):
-        self._log.log_format("_login_err", "login_err", True)
+        self._log.log_debug_format("_login_err", "login_err", True)
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
         exec('del self.user.{0}'.format(server_name))
 
     def _login_correct(self):
-        self._log.log_format("_login_correct", "login_correct")
+        self._log.log_debug_format("_login_correct", "login_correct")
 
     def _recv_fun(self, server_name):
         try:
