@@ -12,18 +12,6 @@ from ChatRoom.log import Log
 from ChatRoom.net import get_host_ip
 from ChatRoom.net import Server, Client
 
-class Rely_Node():
-
-    def __init__(self, to_user_name, master):
-
-        self.to_user_name = to_user_name
-
-        self.master = master
-
-    def send(self, data):
-
-        self.master.user.Room.send(['CMD_Forwarding', self.to_user_name, data])
-
 class Room():
 
     def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True):
@@ -80,28 +68,13 @@ class Room():
 
         self._user_info_dict = {}
 
-        self._relay_connect_user_info_dict = {}
-
         self._callback_pretreatment(self.server.recv_info_queue)
 
         self._user_information_processing()
 
     def _disconnect_callback(self, client_name):
-
         # 删除节点信息
         del self._user_info_dict[client_name]
-
-        # 清楚中继节点信息
-        if client_name in self._relay_connect_user_info_dict:
-            for to_user in self._relay_connect_user_info_dict[client_name]:
-                exec("self.user.{0}.send(['CMD_DelRelayConnect', client_name])".format(to_user))
-
-            del self._relay_connect_user_info_dict[client_name]
-            for relay_connect_set in self._relay_connect_user_info_dict.values():
-                try:
-                    relay_connect_set.remove(client_name)
-                except KeyError:
-                    pass
 
     def _callback_pretreatment(self, recv_info_queue):
 
@@ -111,19 +84,18 @@ class Room():
                     recv_data = recv_info_queue.get()
                     # [from_user, [cmd, xxx, xxx]]
                     from_user = recv_data[0]
-                    cmd = recv_data[1][0]
+
+                    try:
+                        cmd = recv_data[1][0]
+                    except Exception:
+                        # 接收到来自User的消息格式不标准,可能是手动发送的
+                        print("{0}: reve not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+                        continue
 
                     # DEBUG
                     # print("{0} recv: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
 
-                    if cmd == "CMD_Forwarding":
-                        # 中继转发
-                        #  ['from_user', ['CMD_Forwarding', 'to_user', data]]
-                        to_user = recv_data[1][1]
-                        data = recv_data[1][2]
-                        # ['CMD_Forwarding', 'from_user', 'Hello!']
-                        exec("self.user.{0}.send(['CMD_Forwarding', from_user, data])".format(to_user))
-                    elif cmd == "CMD_UserInfo":
+                    if cmd == "CMD_UserInfo":
                         # 接收from_user信息
                         #  ['from_user', ['CMD_UserInfo', {'local_ip': '10.88.3.152', 'public_ip': '', 'port': 13004, 'password': 'Z(qC\x0b1=\nkc\ry|L\t+', 'is_public_network': False, 'lan_id': 'D'}]]
                         user_info = recv_data[1][1]
@@ -180,22 +152,9 @@ class Room():
                                 # 公网b a去连接公网b
                                 exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['public_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
                             else:
-                                # 不同局域网下的a,b, 使用中继
-                                exec("self.user.{0}.send(['CMD_RelayConnect', user_b])".format(user_a))
-                                exec("self.user.{0}.send(['CMD_RelayConnect', user_a])".format(user_b))
-
-                                try:
-                                    self._relay_connect_user_info_dict[user_a]
-                                except KeyError:
-                                    self._relay_connect_user_info_dict[user_a] = set()
-
-                                try:
-                                    self._relay_connect_user_info_dict[user_b]
-                                except KeyError:
-                                    self._relay_connect_user_info_dict[user_b] = set()
-
-                                self._relay_connect_user_info_dict[user_a].add(user_b)
-                                self._relay_connect_user_info_dict[user_b].add(user_a)
+                                # 不同局域网下的a,b, 使用Room代理
+                                # TODO
+                                pass
                     old_user_info_dict = copy.deepcopy(self._user_info_dict)
                 except Exception as err:
                     traceback.print_exc()
@@ -277,8 +236,6 @@ class User():
 
         self.recv_info_queue = queue.Queue()
 
-        self._relay_connect_name_set = set()
-
         self.user_password = user_password
 
         # 分组
@@ -321,17 +278,8 @@ class User():
         self.client.conncet("Room", self.room_ip, self.room_port, self.room_password)
         self.user.Room.send(["CMD_GetUserNapwInfo"])
 
-    def _relay_connect(self, to_user_name):
-
-        self._log.log_info_format("Relay Connecty", to_user_name)
-        exec("self.user.{0} = Rely_Node(to_user_name, self)".format(to_user_name))
-        self._relay_connect_name_set.add(to_user_name)
-
     def _disconnect_callback(self):
-
-        for to_user_name in self._relay_connect_name_set:
-            exec("del self.user.{0}".format(to_user_name))
-        self._relay_connect_name_set = set()
+        pass
 
     def _connect_callback(self):
 
@@ -352,12 +300,6 @@ class User():
             ]
         )
 
-    def _del_relay_connect(self, to_user_name):
-
-        exec("del self.user.{0}".format(to_user_name))
-        self._relay_connect_name_set.remove(to_user_name)
-        self._log.log_info_format_err("Relay Offline", to_user_name)
-
     def _connect(self, server_name, ip, port, password):
 
         self._log.log_info_format("Connecty", server_name)
@@ -376,7 +318,7 @@ class User():
             while True:
                 try:
                     recv_data = recv_info_queue.get()
-                    # [from_user, [cmd, xxx, xxx]]
+                    # [from_user, data]
                     from_user = recv_data[0]
 
                     # DEBUG
@@ -384,14 +326,15 @@ class User():
 
                     if from_user == "Room":
                         # 过滤出Room消息
-                        cmd = recv_data[1][0]
-                        if cmd == "CMD_Forwarding":
-                            # 中继消息重构数据
-                            # ["Room", ["CMD_Forwarding", "from_user", data]]
-                            #           [from_user, data]
-                            recv_data = [recv_data[1][1], recv_data[1][2]]
-                            # 不continue被下面的捕获发送
-                        elif cmd == 'CMD_Connect':
+                        # ["Room", [cmd, xxx, xxx]]
+                        try:
+                            cmd = recv_data[1][0]
+                        except Exception:
+                            # 接收到来自Room的消息格式不标准,可能是手动发送的
+                            print("{0}: reve not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+                            continue
+
+                        if cmd == 'CMD_Connect':
                             # 连接其他user
                             # ["Room", ["CMD_Connect", name, ip, port, password]]
                             name = recv_data[1][1]
@@ -402,26 +345,6 @@ class User():
                                 port = recv_data[1][3]
                                 password = recv_data[1][4]
                                 self._connect(name, ip, port, password)
-                            continue
-                        elif cmd == 'CMD_RelayConnect':
-                            # 中继连接
-                            # ["Room", ["CMD_RelayConnect", name]]
-                            name = recv_data[1][1]
-                            try:
-                                exec("self.user.{0}".format(name))
-                            except AttributeError:
-                                self._relay_connect(name)
-                            continue
-                        elif cmd == 'CMD_DelRelayConnect':
-                            # 删除中继连接
-                            # ["Room", ["CMD_DelRelayConnect", name]]
-                            name = recv_data[1][1]
-                            try:
-                                exec("self.user.{0}".format(name))
-                            except:
-                                pass
-                            else:
-                                self._del_relay_connect(name)
                             continue
                         elif cmd == 'CMD_UserNapwInfo':
                             # 保存其他user密码配置信息
@@ -472,6 +395,11 @@ if __name__ == "__main__":
 
         user_foo.default_callback()
 
+        def foo_server_test_get_callback_func(data):
+            # do something
+            return ["user_foo doing test", data]
+        user_foo.register_get_event_callback_func("test", foo_server_test_get_callback_func)
+
         # User_2
         import ChatRoom
 
@@ -481,27 +409,12 @@ if __name__ == "__main__":
 
         user_bar.default_callback()
 
-        # ===================================== send方法 ============================================
-        user_foo.user.Bar.send("Hello")
-        user_bar.user.Foo.send("Hello")
-
-        # ===================================== get方法 =============================================
-        def foo_server_test_get_callback_func(data):
-            # do something
-            return ["user_foo doing test", data]
-        user_foo.register_get_event_callback_func("test", foo_server_test_get_callback_func)
-
         def bar_server_test_get_callback_func(data):
             # do something
             return ["user_bar doing test", data]
         user_bar.register_get_event_callback_func("test", bar_server_test_get_callback_func)
 
-        user_foo.user.Bar.get("test", "Hello get")
-        user_bar.user.Foo.get("test", "Hello get")
-
-
-        # ===================================== 中继连接User =========================================
-        # User_3
+        # User_3 Room代理连接User
         import ChatRoom
 
         user_too = ChatRoom.User(
@@ -512,14 +425,19 @@ if __name__ == "__main__":
 
         user_too.default_callback()
 
+        def too_server_test_get_callback_func(data):
+            # do something
+            return ["user_too doing test", data]
+        user_too.register_get_event_callback_func("test", too_server_test_get_callback_func)
 
 
+        # ===================================== send方法 ============================================
+        user_foo.user.Bar.send("Hello")
+        user_bar.user.Foo.send("Hello")
 
-
-
-
-
-
+        # ===================================== get方法 =============================================
+        user_foo.user.Bar.get("test", "Hello get")
+        user_bar.user.Foo.get("test", "Hello get")
 
     elif random_int == 2:
         # 需要验证用户密码的形式
