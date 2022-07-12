@@ -143,7 +143,7 @@ class Server():
                 try:
                     for server_name in self._user_dict.keys():
                         if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, ["CMD_heartbeat_END"])
+                            self.send(server_name, ["CMD_HEARTBEAT_END"])
                 except Exception as err:
                     print("{0}: \033[0;36;41mServer 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
@@ -181,11 +181,11 @@ class Server():
 
     def _tcplink(self, sock, addr):
 
-        self._connect_timeout_sock_set.add(sock)
-
         if addr[0] in self.blacklist:
             self._blacklist(sock, addr)
             return
+
+        self._connect_timeout_sock_set.add(sock)
 
         self._log.log_info_format("Connect", addr)
 
@@ -272,7 +272,7 @@ class Server():
                     # get result ["CMD_REGET", uuid_id, result_data]
                     self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
                     self.get_event_info_dict[recv_data[1]]["event"].set()
-                elif cmd == "CMD_heartbeat_END":
+                elif cmd == "CMD_HEARTBEAT_END":
                     continue
             except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                 self._log.log_info_format_err("Offline", "{0} {1}".format(client_name, err))
@@ -371,7 +371,7 @@ class Server():
                         old_check_time = old_check_time_dict[sock] = time.time()
 
                     if time.time() - old_check_time >= 15:
-                        print("timeout sock close:", sock)
+                        self._log.log_info_warning_format("WARNING", "timeout sock close: {0}".format(sock))
                         sock.close()
                         remove_sock_list.append(sock)
 
@@ -661,6 +661,8 @@ class Client():
 
         self.is_encryption_dict = {}
 
+        self._connect_timeout_sock_set = set()
+
         self.user = User()
 
         self._send_lock = threading.Lock()
@@ -685,6 +687,8 @@ class Client():
         if self._auto_reconnect:
             self._auto_reconnect_server()
 
+        self._connect_timeout_server()
+
         self._heartbeat_server()
 
         self._get_event_callback_server()
@@ -698,6 +702,8 @@ class Client():
             sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 60000, 30000))
 
         sock.connect((ip, port))
+        self._connect_timeout_sock_set.add(sock)
+
         self._log.log_info_format("Connect", server_name)
         self._user_dict[server_name] = {}
         self._user_dict[server_name]["can_heartbeat_flag"] = False
@@ -754,6 +760,8 @@ class Client():
         except Exception as err:
             traceback.print_exc()
             print(err)
+
+        self._connect_timeout_sock_set.remove(sock)
 
         self._user_dict[server_name]["can_heartbeat_flag"] = True
 
@@ -819,7 +827,7 @@ class Client():
                 try:
                     for server_name in self._user_dict.keys():
                         if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, ["CMD_heartbeat_END"])
+                            self.send(server_name, ["CMD_HEARTBEAT_END"])
                 except Exception as err:
                     print("{0}: \033[0;36;41mClient 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                     traceback.print_exc()
@@ -859,7 +867,7 @@ class Client():
                         # get result ["CMD_REGET", uuid_id, result_data]
                         self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
                         self.get_event_info_dict[recv_data[1]]["event"].set()
-                    elif cmd == "CMD_heartbeat_END":
+                    elif cmd == "CMD_HEARTBEAT_END":
                         continue
                 except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
                     self._log.log_info_format_err("Offline", "{0} {1}".format(server_name, err))
@@ -923,6 +931,33 @@ class Client():
             while True:
                 from_user, recv_data = self.recv_info_queue.get()
                 print("{0} from {1} recv: {2}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), from_user, recv_data))
+
+        sub_th = threading.Thread(target=sub)
+        sub_th.setDaemon(True)
+        sub_th.start()
+
+    def _connect_timeout_server(self):
+
+        def sub():
+            # 无论是否已经断开了都会再次断开次
+            old_check_time_dict = {}
+            while True:
+                time.sleep(10)
+                remove_sock_list = []
+                for sock in self._connect_timeout_sock_set:
+                    try:
+                        old_check_time = old_check_time_dict[sock]
+                    except KeyError:
+                        old_check_time = old_check_time_dict[sock] = time.time()
+
+                    if time.time() - old_check_time >= 15:
+                        self._log.log_info_warning_format("WARNING", "timeout sock close: {0}".format(sock))
+                        sock.close()
+                        remove_sock_list.append(sock)
+
+                for sock in remove_sock_list:
+                    self._connect_timeout_sock_set.remove(sock)
+                    del old_check_time_dict[sock]
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)

@@ -169,7 +169,7 @@ class Room():
 
                         if user_info_a['lan_id'] == user_info_b['lan_id']:
                             # 同一局域网, 局域网互联, a连接b
-                            #       cmd               name,                      ip,                port,             password
+                            #                                   cmd               name,                      ip,                port,                    password
                             exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['local_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
                         else:
                             # 不同局域网
