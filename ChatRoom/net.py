@@ -769,34 +769,39 @@ class Client():
 
         def re_connect(server_name, ip, port, password):
 
-            for _ in range(10):
-                # limit max 10 times
-                try:
-                    old_delay = self._auto_reconnect_timedelay_dict[server_name]
-                    if old_delay > 30:
-                        self._auto_reconnect_timedelay_dict[server_name] = 30
-                except KeyError:
-                    old_delay = self._auto_reconnect_timedelay_dict[server_name] = 0
+            lock = self._auto_reconnect_lock_dict[server_name]
 
-                time.sleep(old_delay)
+            if lock.locked():
+                return
 
-                lock = self._auto_reconnect_lock_dict[server_name]
-                lock.acquire()
-                try:
-                    if server_name not in self._user_dict.keys():
-                        self.conncet(server_name, ip, port, password)
-                        self._auto_reconnect_timedelay_dict[server_name] = 0
-                        break
-                    else:
-                        self._log.log_info_format("already connect", server_name)
-                        break
-                except Exception as err:
-                # except ConnectionRefusedError:
-                    # except connect all err was in this
-                    self._log.log_info_format_err("Re Connect Failed", "{0} {1}".format(server_name, err))
-                    self._auto_reconnect_timedelay_dict[server_name] += 5
-                finally:
-                    lock.release()
+            lock.acquire()
+            try:
+                for _ in range(10):
+                    # limit max 10 times
+                    try:
+                        old_delay = self._auto_reconnect_timedelay_dict[server_name]
+                        if old_delay > 30:
+                            self._auto_reconnect_timedelay_dict[server_name] = 30
+                    except KeyError:
+                        old_delay = self._auto_reconnect_timedelay_dict[server_name] = 0
+
+                    time.sleep(old_delay)
+
+                    try:
+                        if server_name not in self._user_dict.keys():
+                            self.conncet(server_name, ip, port, password)
+                            self._auto_reconnect_timedelay_dict[server_name] = 0
+                            break
+                        else:
+                            self._log.log_info_format("already connect", server_name)
+                            break
+                    except Exception as err:
+                    # except ConnectionRefusedError:
+                        # except connect all err was in this
+                        self._log.log_info_format_err("Re Connect Failed", "{0} {1}".format(server_name, err))
+                        self._auto_reconnect_timedelay_dict[server_name] += 5
+            finally:
+                lock.release()
 
         def server():
             while True:

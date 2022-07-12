@@ -191,7 +191,7 @@ class User():
                 请注意需要在各种安全组或防火墙开启此端口
             lan_id : str (Default: "Default")
                 默认为"Default", 局域网id, 由用户手动设置
-                同一局域网的用户请使用相同的局域网id, 这样同一内网下的用户将直接局域网互相连接而不会通过速度慢的中继连接等方式
+                同一局域网的用户请使用相同的局域网id, 这样同一内网下的用户将直接局域网互相连接
             log : None or str (Default: "INFO")
                 日志等级
                     None: 除了错误什么都不显示
@@ -264,6 +264,7 @@ class User():
                 time.sleep(.1)
         self.port = self.server.port
 
+        # 指定重连白名单为"Room",让User不重连其他User只连接Room
         self.client = Client(self.user_name, self.user_password, log="INFO", auto_reconnect=True, reconnect_name_whitelist=["Room"], encryption=encryption)
 
         # Redirect
@@ -414,94 +415,53 @@ if __name__ == "__main__":
             return ["user_bar doing test", data]
         user_bar.register_get_event_callback_func("test", bar_server_test_get_callback_func)
 
-        # User_3 Room代理连接User
-        import ChatRoom
-
-        user_too = ChatRoom.User(
-                user_name="Too",
-                # 通过lan_id区分各个user是否在同一局域网下,不同的局域网内User将使用中继连接进行连接
-                lan_id="other_net"
-            )
-
-        user_too.default_callback()
-
-        def too_server_test_get_callback_func(data):
-            # do something
-            return ["user_too doing test", data]
-        user_too.register_get_event_callback_func("test", too_server_test_get_callback_func)
-
-
-        # ===================================== send方法 ============================================
-        user_foo.user.Bar.send("Hello")
-        user_bar.user.Foo.send("Hello")
-
-        # ===================================== get方法 =============================================
-        user_foo.user.Bar.get("test", "Hello get")
-        user_bar.user.Foo.get("test", "Hello get")
-
     elif random_int == 2:
         # 需要验证用户密码的形式
         # Room
         import ChatRoom
 
         # user_napw_info 使用 hash_encryption 函数生成
-        user_napw_info = {'Foo': b'$2b$10$RjxnUdrJbLMLe/bNY7sUU.SmDmsAyfSUmuvXQ7eYjXYVKNlR36.XG',
-            'Bar': b'$2b$10$/CIYKXeTwaXcuJIvv7ySY.Tzs17u/EwqT5UlOAkNIosK594FTB35e'}
+        user_napw_info = {
+            'Foo': b'$2b$10$RjxnUdrJbLMLe/bNY7sUU.SmDmsAyfSUmuvXQ7eYjXYVKNlR36.XG',
+            'Bar': b'$2b$10$/CIYKXeTwaXcuJIvv7ySY.Tzs17u/EwqT5UlOAkNIosK594FTB35e',
+        }
         room = ChatRoom.Room(user_napw_info=user_napw_info)
 
-        # User
+        # User_1
         import ChatRoom
 
-        user = ChatRoom.User(
+        user_foo = ChatRoom.User(
                 user_name="Foo",
-                user_password="123456"
+                user_password="123456",
             )
 
-        user.default_callback()
+        user_foo.default_callback()
 
-        # send info
-        user.user.Room.send("Hello")
-        room.user.Foo.send("Hello")
-
-    elif random_int == 3:
-        # Room
-        import ChatRoom
-        room = ChatRoom.Room()
-
-        # User1
-        import ChatRoom
-
-        user1 = ChatRoom.User(
-                user_name="Foo",
-            )
-
-        user1.default_callback()
-
-        def server_test_get_callback_func(data):
+        def foo_server_test_get_callback_func(data):
             # do something
-            return ["user1 doing test", data]
+            return ["user_foo doing test", data]
+        user_foo.register_get_event_callback_func("test", foo_server_test_get_callback_func)
 
-        user1.register_get_event_callback_func("test", server_test_get_callback_func)
-
-        # User2
+        # User_2
         import ChatRoom
 
-        user2 = ChatRoom.User(
+        user_bar = ChatRoom.User(
                 user_name="Bar",
+                user_password="abcdef",
             )
 
-        user2.default_callback()
+        user_bar.default_callback()
 
-        def server_test_get_callback_func(data):
+        def bar_server_test_get_callback_func(data):
             # do something
-            return ["user2 doing test", data]
+            return ["user_bar doing test", data]
+        user_bar.register_get_event_callback_func("test", bar_server_test_get_callback_func)
 
-        user2.register_get_event_callback_func("test", server_test_get_callback_func)
 
-        # send info
-        user1.user.Bar.send("Hello user2")
-        user2.user.Foo.send("Hello user1")
+    # ===================================== send方法 ============================================
+    user_foo.user.Bar.send("Hello")
+    user_bar.user.Foo.send("Hello")
 
-        # get info
-        print(user1.user.Bar.get("test", "Hello get"))
-        print(user2.user.Foo.get("test", "Hello get"))
+    # ===================================== get方法 =============================================
+    user_foo.user.Bar.get("test", "Hello get")
+    user_bar.user.Foo.get("test", "Hello get")
