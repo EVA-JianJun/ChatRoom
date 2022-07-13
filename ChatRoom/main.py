@@ -85,15 +85,15 @@ class Room():
                     # [from_user, [cmd, xxx, xxx]]
                     from_user = recv_data[0]
 
+                    # DEBUG
+                    # print("{0} recv: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
+
                     try:
                         cmd = recv_data[1][0]
                     except Exception:
                         # 接收到来自User的消息格式不标准,可能是手动发送的
                         print("{0}: reve not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                         continue
-
-                    # DEBUG
-                    # print("{0} recv: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
 
                     if cmd == "CMD_UserInfo":
                         # 接收from_user信息
@@ -104,6 +104,8 @@ class Room():
                         # 向from_user发送其他user密码配置信息
                         # ['from_user', 'CMD_GetUserNapwInfo']
                         exec("self.user.{0}.send(['CMD_UserNapwInfo', self.user_napw_info])".format(from_user))
+                    else:
+                        print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                 except Exception as err:
                     traceback.print_exc()
                     print(err)
@@ -119,8 +121,10 @@ class Room():
             old_user_info_dict = {}
             while True:
                 time.sleep(10)
+                # 这个线程用于调度所有的User的连接,如果其中某两个User断开了连接,这里会重新调度User进行连接
                 if old_user_info_dict == self._user_info_dict:
-                    continue
+                    # 未发生改变,继续等待20s,然后发生连接指令,如果各个User连接正常,那么指令无效,如果某两个User断开连接则会在次指令下进行重连
+                    time.sleep(20)
                 try:
                     for user_a, user_b in itertools.combinations(self._user_info_dict, 2):
                         # print(user_a, user_b)
@@ -168,7 +172,188 @@ class Room():
         sub_th.setDaemon(True)
         sub_th.start()
 
+class ShareObjectMerge():
+    """ 合并底层Share对象 """
+    def __init__(self, server_user, client_user):
+        self._server_share = server_user.myself.share
+        self._client_share = client_user.myself.share
+
+        self._server_share_dict = self._server_share._share_dict
+        self._client_share_dict = self._client_share._share_dict
+
+    def __str__(self) -> str:
+        self._server_share_dict.update(self._client_share_dict)
+        return str(self._server_share_dict)
+
+    def __repr__(self) -> str:
+        self._server_share_dict.update(self._client_share_dict)
+        return str(self._server_share_dict)
+
+    def __getitem__(self, key):
+        try:
+            return self._server_share_dict[key]
+        except KeyError:
+            return self._client_share_dict[key]
+
+    def __setitem__(self, key, value):
+        self.__setattr__(key, value)
+
+    def __delitem__(self, key):
+        self.__delattr__(key)
+
+    def __setattr__(self, attr: str, value) -> None:
+        """ set & modify"""
+        if attr.startswith("_"):
+            super().__setattr__(attr, value)
+        else:
+            # 保存变量
+            self._server_share.__setattr__(attr, value)
+            self._client_share.__setattr__(attr, value)
+
+            self._server_share_dict[attr] = value
+            self._client_share_dict[attr] = value
+
+    def __delattr__(self, name: str) -> None:
+        """ del """
+        # 删除变量
+        try:
+            self._server_share.__delattr__(name)
+        except AttributeError:
+            pass
+        try:
+            self._client_share.__delattr__(name)
+        except AttributeError:
+            pass
+
+        try:
+            del self._server_share_dict[name]
+        except KeyError:
+            pass
+        try:
+            del self._client_share_dict[name]
+        except KeyError:
+            pass
+
+    def __getattribute__(self, __name: str):
+        try:
+            # 让本身类保持正常
+            return super().__getattribute__(__name)
+        except AttributeError:
+            # 获取user从S或者C中取
+            try:
+                return self._server_share.__getattribute__(__name)
+            except AttributeError:
+                return self._client_share.__getattribute__(__name)
+
+    def __dir__(self):
+        return self._server_share.__dir__() + self._client_share.__dir__()
+
+class StatusObjectMerge():
+    """ 合并底层Status对象 """
+    def __init__(self, server_user, client_user):
+        # 套用上面的代码,只是下面改成了status
+        self._server_share = server_user.myself.status
+        self._client_share = client_user.myself.status
+
+        self._server_share_dict = self._server_share._share_dict
+        self._client_share_dict = self._client_share._share_dict
+
+    def __str__(self) -> str:
+        self._server_share_dict.update(self._client_share_dict)
+        return str(self._server_share_dict)
+
+    def __repr__(self) -> str:
+        self._server_share_dict.update(self._client_share_dict)
+        return str(self._server_share_dict)
+
+    def __getitem__(self, key):
+        try:
+            return self._server_share_dict[key]
+        except KeyError:
+            return self._client_share_dict[key]
+
+    def __setitem__(self, key, value):
+        self.__setattr__(key, value)
+
+    def __delitem__(self, key):
+        self.__delattr__(key)
+
+    def __setattr__(self, attr: str, value) -> None:
+        """ set & modify"""
+        if attr.startswith("_"):
+            super().__setattr__(attr, value)
+        else:
+            # 保存变量
+            self._server_share.__setattr__(attr, value)
+            self._client_share.__setattr__(attr, value)
+
+            self._server_share_dict[attr] = value
+            self._client_share_dict[attr] = value
+
+    def __delattr__(self, name: str) -> None:
+        """ del """
+        # 删除变量
+        try:
+            self._server_share.__delattr__(name)
+        except AttributeError:
+            pass
+        try:
+            self._client_share.__delattr__(name)
+        except AttributeError:
+            pass
+
+        try:
+            del self._server_share_dict[name]
+        except KeyError:
+            pass
+        try:
+            del self._client_share_dict[name]
+        except KeyError:
+            pass
+
+    def __getattribute__(self, __name: str):
+        try:
+            # 让本身类保持正常
+            return super().__getattribute__(__name)
+        except AttributeError:
+            # 获取user从S或者C中取
+            try:
+                return self._server_share.__getattribute__(__name)
+            except AttributeError:
+                return self._client_share.__getattribute__(__name)
+
+    def __dir__(self):
+        return self._server_share.__dir__() + self._client_share.__dir__()
+
 class User():
+
+    class UserUser():
+        """ 合并Server和Client的User类 """
+        class MySelf():
+            """ 表层MySelf类 """
+            def __init__(self, server_user, client_user):
+                self.share = ShareObjectMerge(server_user, client_user)
+                self.status = StatusObjectMerge(server_user, client_user)
+
+        def __init__(self, server_user, client_user) -> None:
+            self._server_user = server_user
+            self._client_user = client_user
+
+            self.myself = self.MySelf(server_user, client_user)
+
+        def __getattribute__(self, __name: str):
+            try:
+                # 让本身类保持正常
+                return super().__getattribute__(__name)
+            except AttributeError:
+                # 获取user从S或者C中取
+                try:
+                    return self._server_user.__getattribute__(__name)
+                except AttributeError:
+                    return self._client_user.__getattribute__(__name)
+
+        def __dir__(self):
+            return self._server_user.__dir__() + self._client_user.__dir__()
 
     def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True, white_list=[], black_list=[]):
         """
@@ -268,11 +453,11 @@ class User():
         self.port = self.server.port
 
         # 指定重连白名单为"Room",让User不重连其他User只连接Room
+        # User, Server, Client 使用同一个user对象
         self.client = Client(self.user_name, self.user_password, log="INFO", auto_reconnect=True, reconnect_name_whitelist=["Room"], encryption=encryption)
 
         # Redirect
         self.client.recv_info_queue = self.server.recv_info_queue
-        self.user = self.client.user = self.server.user
         self.client.register_disconnect_user_fun(self._disconnect_callback)
         self.client.register_connect_user_fun(self._connect_callback)
 
@@ -280,7 +465,8 @@ class User():
 
         # 进入聊天室
         self.client.conncet("Room", self.room_ip, self.room_port, self.room_password)
-        self.user.Room.send(["CMD_GetUserNapwInfo"])
+
+        self.user = self.UserUser(self.server.user, self.client.user)
 
     def _disconnect_callback(self):
         pass
@@ -303,6 +489,8 @@ class User():
                 },
             ]
         )
+
+        self.client.user.Room.send(["CMD_GetUserNapwInfo"])
 
     def _connect(self, server_name, ip, port, password):
 
@@ -343,7 +531,8 @@ class User():
                             # ["Room", ["CMD_Connect", name, ip, port, password]]
                             name = recv_data[1][1]
                             try:
-                                exec("self.user.{0}".format(name))
+                                # 如果这个变量存在则说明已经连接就不进行重连
+                                getattr(self.user, name)
                             except AttributeError:
                                 ip = recv_data[1][2]
                                 port = recv_data[1][3]
@@ -462,9 +651,67 @@ if __name__ == "__main__":
 
 
     # ===================================== send方法 ============================================
+    """
+        def send(self, data):
+        文档:
+            向其他集群节点发送数据
+
+        参数:
+            data : all type
+                发送的数据,支持所有内建格式和第三方格式
+    """
+    user_foo.user.Room.send("Hello")
     user_foo.user.Bar.send("Hello")
+
     user_bar.user.Foo.send("Hello")
 
+    room.user.Foo.send("Hello")
+
     # ===================================== get方法 =============================================
+    """
+        def get(self, get_name, data, timeout=60):
+        文档:
+            向其他集群节点发送请求
+
+        参数:
+            get_name : str
+                请求的名称,以此来区分不同的请求逻辑
+            data : all type
+                请求的参数数据,支持所有内建格式和第三方格式
+    """
     user_foo.user.Bar.get("test", "Hello get")
+
     user_bar.user.Foo.get("test", "Hello get")
+    user_bar.user.Room.get("test", "Hello get")
+
+    room.user.Bar.get("NONO", "Hello get")
+
+    # ===================================== 共享变量share =============================================
+    # 增加,修改直接赋值
+    user_foo.user.myself.share.a = "im foo a"
+    user_foo.user.myself.share.b = "im foo b"
+
+    user_bar.user.myself.share.a = 1
+    user_bar.user.myself.share["c"] = 10.1
+
+    room.user.myself.share.r = "Hello"
+
+    # 读取
+    user_foo.user.Bar.share
+    user_foo.user.Room.share
+    user_foo.user.Bar.share.c
+    user_foo.user.Bar.share["c"]
+    user_foo.user.Room.share["r"]
+
+    user_bar.user.Foo.share
+    user_bar.user.Room.share
+    user_bar.user.Foo.share.b
+    user_bar.user.Foo.share["b"]
+
+    room.user.Bar.share
+    room.user.Foo.share
+
+    # 删除
+    del user_foo.user.myself.share.a
+
+    del user_bar.user.myself.share["c"]

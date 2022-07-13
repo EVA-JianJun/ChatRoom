@@ -24,7 +24,7 @@ class ShareObject(object):
         self._share_dict = {}
 
         self.__flush_time_interval = flush_time_interval
-        self.auto_flush_server()
+        self.__auto_flush_server()
 
     def __str__(self) -> str:
         return str(self._share_dict)
@@ -38,6 +38,9 @@ class ShareObject(object):
     def __setitem__(self, key, value):
         self.__setattr__(key, value)
 
+    def __delitem__(self, key):
+        self.__delattr__(key)
+
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
         # 保存变量
@@ -49,11 +52,13 @@ class ShareObject(object):
             # 向所有其他用户发送该变化
             for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
                 try:
-                    self._master.send(user._name, ["CMD_SHARE_UPDATE", {attr:value}])
-                    # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                    user_name = user._name
                 except AttributeError:
                     # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
-                    pass
+                    continue
+
+                self._master.send(user_name, ["CMD_SHARE_UPDATE", {attr:value}])
+                # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
 
     def __delattr__(self, name: str) -> None:
         """ del """
@@ -73,13 +78,15 @@ class ShareObject(object):
             # 向所有其他用户发送该变化
             for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
                 try:
-                    self._master.send(user._name, ["CMD_SHARE_DEL", name])
-                    # print("send", user._name, ["CMD_SHARE_DEL", name])
+                    user_name = user._name
                 except AttributeError:
                     # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
-                    pass
+                    continue
 
-    def auto_flush_server(self):
+                self._master.send(user_name, ["CMD_SHARE_DEL", name])
+                # print("send", user._name, ["CMD_SHARE_DEL", name])
+
+    def __auto_flush_server(self):
         """ 每隔一段时间自动同步 """
         # ShareObject 的同步间隔为60s,这个60s比较长,这个功能只是保险,因为任何的修改,赋值,删除都会即刻更新到其他节点上,这里只保证即刻更新后的同步机制
         def sub():
@@ -88,11 +95,14 @@ class ShareObject(object):
                     time.sleep(self.__flush_time_interval)
                     for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
                         try:
-                            self._master.send(user._name, ["CMD_SHARE_FLUSH", self._share_dict])
-                            # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                            user_name = user._name
                         except AttributeError:
                             # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
-                            pass
+                            continue
+
+                        self._master.send(user_name, ["CMD_SHARE_FLUSH", self._share_dict])
+                        # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+
                 except Exception as err:
                     self._master._log.log_info_format_err("Flush Err", "同步share错误!")
                     traceback.print_exc()
@@ -122,6 +132,9 @@ class StatusObject(object):
 
     def __setitem__(self, key, value):
         self.__setattr__(key, value)
+
+    def __delitem__(self, key):
+        self.__delattr__(key)
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -154,13 +167,16 @@ class StatusObject(object):
                     time.sleep(self.__flush_time_interval)
                     for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
                         try:
-                            self._master.send(user._name, ["CMD_STATUS_FLUSH", self._share_dict])
-                            # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                            user_name = user._name
                         except AttributeError:
                             # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
-                            pass
+                            continue
+
+                        self._master.send(user_name, ["CMD_STATUS_FLUSH", self._share_dict])
+                        # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+
                 except Exception as err:
-                    self._master._log.log_info_format_err("Flush Err", "同步share错误!")
+                    self._master._log.log_info_format_err("Flush Err", "同步status错误!")
                     traceback.print_exc()
                     print(err)
 
@@ -168,7 +184,7 @@ class StatusObject(object):
         auto_flush_server_th.setDaemon(True)
         auto_flush_server_th.start()
 
-class SockObject(object):
+class MySelfObject(object):
 
     def __init__(self, master):
         self.share = ShareObject(master)
@@ -191,7 +207,10 @@ class OUSObject(object):
         return self._share_dict[key]
 
     def __setitem__(self, key, value):
-        self._share_dict[key] = value
+        self.__setattr__(key, value)
+
+    def __delitem__(self, key):
+        self.__delattr__(key)
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -345,9 +364,8 @@ class Server():
             self.blacklist = blacklist
 
         self.user = User()
-
         # 在用户对象里保存自己
-        self.user.myself = SockObject(self)
+        self.user.myself = MySelfObject(self)
 
         self._send_lock = threading.Lock()
 
@@ -555,7 +573,7 @@ class Server():
                 print(err)
 
     def _default_get_event_callback_func(self, data):
-        return ["default", data]
+        return ["Undefined", data]
 
     def register_get_event_callback_func(self, get_name, func):
         self.get_callback_func_dict[get_name] = func
@@ -935,9 +953,8 @@ class Client():
         self._connect_timeout_sock_set = set()
 
         self.user = User()
-
         # 在用户对象里保存自己
-        self.user.myself = SockObject(self)
+        self.user.myself = MySelfObject(self)
 
         self._send_lock = threading.Lock()
 
