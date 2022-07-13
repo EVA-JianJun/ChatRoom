@@ -16,32 +16,280 @@ from ChatRoom.log import Log
 class User():
     pass
 
+# ======================== 自身使用 =========================
+class ShareObject(object):
+
+    def __init__(self, master, flush_time_interval=60):
+        self._master = master
+        self._share_dict = {}
+
+        self.__flush_time_interval = flush_time_interval
+        self.auto_flush_server()
+
+    def __str__(self) -> str:
+        return str(self._share_dict)
+
+    def __repr__(self) -> str:
+        return str(self._share_dict)
+
+    def __getitem__(self, key):
+        return self._share_dict[key]
+
+    def __setitem__(self, key, value):
+        self.__setattr__(key, value)
+
+    def __setattr__(self, attr: str, value) -> None:
+        """ set & modify"""
+        # 保存变量
+        super().__setattr__(attr, value)
+
+        if not attr.startswith("_"):
+            # 保存字典
+            self._share_dict[attr] = value
+            # 向所有其他用户发送该变化
+            for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
+                try:
+                    self._master.send(user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                    # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                except AttributeError:
+                    # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
+                    pass
+
+    def __delattr__(self, name: str) -> None:
+        """ del """
+        # 删除变量
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            pass
+
+        try:
+            del self._share_dict[name]
+        except KeyError:
+            pass
+
+        if not name.startswith("_"):
+            # 保存字典
+            # 向所有其他用户发送该变化
+            for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
+                try:
+                    self._master.send(user._name, ["CMD_SHARE_DEL", name])
+                    # print("send", user._name, ["CMD_SHARE_DEL", name])
+                except AttributeError:
+                    # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
+                    pass
+
+    def auto_flush_server(self):
+        """ 每隔一段时间自动同步 """
+        # ShareObject 的同步间隔为60s,这个60s比较长,这个功能只是保险,因为任何的修改,赋值,删除都会即刻更新到其他节点上,这里只保证即刻更新后的同步机制
+        def sub():
+            while True:
+                try:
+                    time.sleep(self.__flush_time_interval)
+                    for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
+                        try:
+                            self._master.send(user._name, ["CMD_SHARE_FLUSH", self._share_dict])
+                            # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                        except AttributeError:
+                            # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
+                            pass
+                except Exception as err:
+                    self._master._log.log_info_format_err("Flush Err", "同步share错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        auto_flush_server_th = threading.Thread(target=sub)
+        auto_flush_server_th.setDaemon(True)
+        auto_flush_server_th.start()
+
+class StatusObject(object):
+
+    def __init__(self, master, flush_time_interval=30):
+        self._master = master
+        self._share_dict = {}
+
+        self.__flush_time_interval = flush_time_interval
+        self.__auto_flush_server()
+
+    def __str__(self) -> str:
+        return str(self._share_dict)
+
+    def __repr__(self) -> str:
+        return str(self._share_dict)
+
+    def __getitem__(self, key):
+        return self._share_dict[key]
+
+    def __setitem__(self, key, value):
+        self.__setattr__(key, value)
+
+    def __setattr__(self, attr: str, value) -> None:
+        """ set & modify"""
+        # 保存变量
+        super().__setattr__(attr, value)
+
+        if not attr.startswith("_"):
+            # 保存字典
+            self._share_dict[attr] = value
+
+    def __delattr__(self, name: str) -> None:
+        """ del """
+        # 删除变量
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            pass
+
+        try:
+            del self._share_dict[name]
+        except KeyError:
+            pass
+
+    def __auto_flush_server(self):
+        """ 每隔一段时间自动同步 """
+        # StatusObject的属性修改不会即刻更新,所以这里是30s更新一次,一个恰当的频率
+        def sub():
+            while True:
+                try:
+                    time.sleep(self.__flush_time_interval)
+                    for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
+                        try:
+                            self._master.send(user._name, ["CMD_STATUS_FLUSH", self._share_dict])
+                            # print("send", user._name, ["CMD_SHARE_UPDATE", {attr:value}])
+                        except AttributeError:
+                            # 这个异常可以过滤掉自身,因为自身中是没有_name属性的且该变化不用发送给自身
+                            pass
+                except Exception as err:
+                    self._master._log.log_info_format_err("Flush Err", "同步share错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        auto_flush_server_th = threading.Thread(target=sub)
+        auto_flush_server_th.setDaemon(True)
+        auto_flush_server_th.start()
+
+class SockObject(object):
+
+    def __init__(self, master):
+        self.share = ShareObject(master)
+        self.status = StatusObject(master)
+
+# ======================== 其他User使用 =========================
+class OUSObject(object):
+    """ Other User Share And Status Object """
+
+    def __init__(self) -> None:
+        self._share_dict = {}
+
+    def __str__(self) -> str:
+        return str(self._share_dict)
+
+    def __repr__(self) -> str:
+        return str(self._share_dict)
+
+    def __getitem__(self, key):
+        return self._share_dict[key]
+
+    def __setitem__(self, key, value):
+        self._share_dict[key] = value
+
+    def __setattr__(self, attr: str, value) -> None:
+        """ set & modify"""
+        # 保存变量
+        super().__setattr__(attr, value)
+
+        if not attr.startswith("_"):
+            # 保存字典
+            self._share_dict[attr] = value
+
+    def __delattr__(self, name: str) -> None:
+        """ del """
+        # 删除变量
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            pass
+
+        try:
+            del self._share_dict[name]
+        except KeyError:
+            pass
+
 class Node():
 
     def __init__(self, name, master):
 
-        self.name  = name
+        self._name  = name
+        self._master = master
 
-        self.master = master
+        self.share = OUSObject()
+        self.status = OUSObject()
 
     def send(self, data):
+        """
+        文档:
+            向其他集群节点发送数据
 
-        self.master.send(self.name, ["CMD_SEND", data])
+        参数:
+            data : all type
+                发送的数据,支持所有内建格式和第三方格式
+        """
+
+        self._master.send(self._name, ["CMD_SEND", data])
 
     def get(self, get_name, data, timeout=60):
+        """
+        文档:
+            向其他集群节点发送请求
+
+        参数:
+            get_name : str
+                请求的名称,以此来区分不同的请求逻辑
+            data : all type
+                请求的参数数据,支持所有内建格式和第三方格式
+        """
 
         uuid_id = uuid.uuid1()
-        self.master.send(self.name, ["CMD_GET", uuid_id, get_name, data])
+        self._master.send(self._name, ["CMD_GET", uuid_id, get_name, data])
 
-        self.master.get_event_info_dict[uuid_id] = {
+        self._master.get_event_info_dict[uuid_id] = {
             "event" : threading.Event(),
         }
 
-        self.master.get_event_info_dict[uuid_id]["event"].clear()
-        if self.master.get_event_info_dict[uuid_id]["event"].wait(timeout):
-            return self.master.get_event_info_dict[uuid_id]["result"]
+        self._master.get_event_info_dict[uuid_id]["event"].clear()
+        if self._master.get_event_info_dict[uuid_id]["event"].wait(timeout):
+            return self._master.get_event_info_dict[uuid_id]["result"]
         else:
             raise Exception("TimeoutError: {0} {1} timeout err!".format(get_name, timeout))
+
+    def send_file(self, source_file_path, remote_file_path):
+        """
+        文档:
+            向其他集群节点发送文件
+
+        参数:
+            source_file_path : str
+                本机需要发送的文件路径
+            remote_file_path : str
+                对方接收文件的路径
+
+        返回:
+            file_status_object : object
+                这个对象的状态会随任务进度的程度而发生改变
+                waiting : 等待发送
+                sending : 发送中
+                success : 发送成功
+                md5err  : 发送完毕但md5错误
+        """
+
+    def sync_file(self):
+        """
+        文档:
+            返回同步文件夹下的所有文件路径列表
+
+        返回:
+            同步文件夹下的所有文件路径列表
+        """
 
 class Server():
 
@@ -98,6 +346,9 @@ class Server():
 
         self.user = User()
 
+        # 在用户对象里保存自己
+        self.user.myself = SockObject(self)
+
         self._send_lock = threading.Lock()
 
         # {"Alice" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi'}
@@ -130,28 +381,7 @@ class Server():
 
         self._connect_timeout_server()
 
-        self._heartbeat_server()
-
         self._get_event_callback_server()
-
-    def _heartbeat_server(self):
-
-        def server():
-            time.sleep(20)
-            while True:
-                time.sleep(40)
-                try:
-                    for server_name in self._user_dict.keys():
-                        if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, ["CMD_HEARTBEAT_END"])
-                except Exception as err:
-                    print("{0}: \033[0;36;41mServer 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-                    traceback.print_exc()
-                    print(err)
-
-        server_th = threading.Thread(target=server)
-        server_th.setDaemon(True)
-        server_th.start()
 
     def _init_conncet(self):
 
@@ -215,7 +445,6 @@ class Server():
             return
         except KeyError:
             self._user_dict[client_name] = {}
-            self._user_dict[client_name]["can_heartbeat_flag"] = False
             self._user_dict[client_name]["sock"] = sock
             self._user_dict[client_name]["pubkey"] = client_pubkey
 
@@ -256,11 +485,20 @@ class Server():
 
         self._connect_timeout_sock_set.remove(sock)
 
-        self._user_dict[client_name]["can_heartbeat_flag"] = True
-
         while True:
             try:
                 recv_data = self._recv_fun_encrypt(client_name)
+                # print(recv_data)
+            except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
+                self._log.log_info_format_err("Offline", "{0} {1}".format(client_name, err))
+                try:
+                    self._disconnect_user_fun(client_name)
+                except Exception as err:
+                    traceback.print_exc()
+                    print(err)
+                break
+
+            try:
                 cmd = recv_data[0]
                 if cmd == "CMD_SEND":
                     # send ["CMD_SEND", data]
@@ -272,16 +510,49 @@ class Server():
                     # get result ["CMD_REGET", uuid_id, result_data]
                     self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
                     self.get_event_info_dict[recv_data[1]]["event"].set()
-                elif cmd == "CMD_HEARTBEAT_END":
-                    continue
-            except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                self._log.log_info_format_err("Offline", "{0} {1}".format(client_name, err))
-                try:
-                    self._disconnect_user_fun(client_name)
-                except Exception as err:
-                    traceback.print_exc()
-                    print(err)
-                break
+                elif cmd == "CMD_SHARE_UPDATE":
+                    # ["CMD_SHARE_UPDATE", {attr:value}]
+                    update_share_dict = recv_data[1]
+                    get_user = getattr(self.user, client_name)
+                    get_user.share._share_dict.update(update_share_dict)
+                    for name, value in update_share_dict.items():
+                        setattr(get_user.share, name, value)
+                elif cmd == "CMD_SHARE_DEL":
+                    # ["CMD_SHARE_DEL", name]
+                    name = recv_data[1]
+                    get_user = getattr(self.user, client_name)
+                    del get_user.share._share_dict[name]
+                    delattr(get_user.share, name)
+                elif cmd == "CMD_SHARE_FLUSH":
+                    # ["CMD_SHARE_FLUSH", self._share_dict]
+                    share_dict = recv_data[1]
+                    get_user = getattr(self.user, client_name)
+                    # 更新变量
+                    get_user.share._share_dict.update(share_dict)
+                    for name, value in share_dict.items():
+                        setattr(get_user.share, name, value)
+                    # 删除多余变量
+                    for del_key in get_user.share._share_dict.keys() - share_dict.keys():
+                        del get_user.share._share_dict[del_key]
+                        delattr(get_user.share, del_key)
+                elif cmd == "CMD_STATUS_FLUSH":
+                    # ["CMD_STATUS_FLUSH", self._share_dict]
+                    status_dict = recv_data[1]
+                    get_user = getattr(self.user, client_name)
+                    # 更新变量
+                    get_user.status._share_dict.update(status_dict)
+                    for name, value in status_dict.items():
+                        setattr(get_user.status, name, value)
+                    # 删除多余变量
+                    for del_key in get_user.status._share_dict.keys() - status_dict.keys():
+                        del get_user.status._share_dict[del_key]
+                        delattr(get_user.status, del_key)
+                else:
+                    self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(client_name, recv_data))
+            except Exception as err:
+                self._log.log_info_format_err("Runtime Err", "Server处理数据错误!")
+                traceback.print_exc()
+                print(err)
 
     def _default_get_event_callback_func(self, data):
         return ["default", data]
@@ -665,6 +936,9 @@ class Client():
 
         self.user = User()
 
+        # 在用户对象里保存自己
+        self.user.myself = SockObject(self)
+
         self._send_lock = threading.Lock()
 
         self._auto_reconnect = auto_reconnect
@@ -689,8 +963,6 @@ class Client():
 
         self._connect_timeout_server()
 
-        self._heartbeat_server()
-
         self._get_event_callback_server()
 
     def conncet(self, server_name, ip, port, password="abc123"):
@@ -706,7 +978,6 @@ class Client():
 
         self._log.log_info_format("Connect", server_name)
         self._user_dict[server_name] = {}
-        self._user_dict[server_name]["can_heartbeat_flag"] = False
         self._user_dict[server_name]["sock"] = sock
 
         if self.encryption:
@@ -762,8 +1033,6 @@ class Client():
             print(err)
 
         self._connect_timeout_sock_set.remove(sock)
-
-        self._user_dict[server_name]["can_heartbeat_flag"] = True
 
     def _auto_reconnect_server(self):
 
@@ -824,24 +1093,6 @@ class Client():
         server_th.setDaemon(True)
         server_th.start()
 
-    def _heartbeat_server(self):
-
-        def server():
-            while True:
-                time.sleep(40)
-                try:
-                    for server_name in self._user_dict.keys():
-                        if self._user_dict[server_name]["can_heartbeat_flag"]:
-                            self.send(server_name, ["CMD_HEARTBEAT_END"])
-                except Exception as err:
-                    print("{0}: \033[0;36;41mClient 发送心跳失败!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-                    traceback.print_exc()
-                    print(err)
-
-        server_th = threading.Thread(target=server)
-        server_th.setDaemon(True)
-        server_th.start()
-
     def _disconnect_user_fun(self, *args, **kwargs):
         pass
 
@@ -861,6 +1112,17 @@ class Client():
             while True:
                 try:
                     recv_data = self._recv_fun_encrypt(server_name)
+                    # print(recv_data)
+                except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
+                    self._log.log_info_format_err("Offline", "{0} {1}".format(server_name, err))
+                    try:
+                        self._disconnect_user_fun()
+                    except Exception as err:
+                        traceback.print_exc()
+                        print(err)
+                    break
+
+                try:
                     cmd = recv_data[0]
                     if cmd == "CMD_SEND":
                         # send ["CMD_SEND", data]
@@ -872,16 +1134,49 @@ class Client():
                         # get result ["CMD_REGET", uuid_id, result_data]
                         self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
                         self.get_event_info_dict[recv_data[1]]["event"].set()
-                    elif cmd == "CMD_HEARTBEAT_END":
-                        continue
-                except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as err:
-                    self._log.log_info_format_err("Offline", "{0} {1}".format(server_name, err))
-                    try:
-                        self._disconnect_user_fun()
-                    except Exception as err:
-                        traceback.print_exc()
-                        print(err)
-                    break
+                    elif cmd == "CMD_SHARE_UPDATE":
+                        # ["CMD_SHARE_UPDATE", {attr:value}]
+                        update_share_dict = recv_data[1]
+                        get_user = getattr(self.user, server_name)
+                        get_user.share._share_dict.update(update_share_dict)
+                        for name, value in update_share_dict.items():
+                            setattr(get_user.share, name, value)
+                    elif cmd == "CMD_SHARE_DEL":
+                        # ["CMD_SHARE_DEL", name]
+                        name = recv_data[1]
+                        get_user = getattr(self.user, server_name)
+                        del get_user.share._share_dict[name]
+                        delattr(get_user.share, name)
+                    elif cmd == "CMD_SHARE_FLUSH":
+                        # ["CMD_SHARE_FLUSH", self._share_dict]
+                        share_dict = recv_data[1]
+                        get_user = getattr(self.user, server_name)
+                        # 更新变量
+                        get_user.share._share_dict.update(share_dict)
+                        for name, value in share_dict.items():
+                            setattr(get_user.share, name, value)
+                        # 删除多余变量
+                        for del_key in get_user.share._share_dict.keys() - share_dict.keys():
+                            del get_user.share._share_dict[del_key]
+                            delattr(get_user.share, del_key)
+                    elif cmd == "CMD_STATUS_FLUSH":
+                        # ["CMD_STATUS_FLUSH", self._share_dict]
+                        status_dict = recv_data[1]
+                        get_user = getattr(self.user, server_name)
+                        # 更新变量
+                        get_user.status._share_dict.update(status_dict)
+                        for name, value in status_dict.items():
+                            setattr(get_user.status, name, value)
+                        # 删除多余变量
+                        for del_key in get_user.status._share_dict.keys() - status_dict.keys():
+                            del get_user.status._share_dict[del_key]
+                            delattr(get_user.status, del_key)
+                    else:
+                        self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(server_name, recv_data))
+                except Exception as err:
+                    self._log.log_info_format_err("Runtime Err", "Client处理数据错误!")
+                    traceback.print_exc()
+                    print(err)
 
         sub_th = threading.Thread(target=sub)
         sub_th.setDaemon(True)

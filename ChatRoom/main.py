@@ -152,8 +152,11 @@ class Room():
                                 # 公网b a去连接公网b
                                 exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['public_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
                             else:
-                                # 不同局域网下的a,b, 使用Room代理
-                                # TODO
+                                # 不同局域网下的a,b
+                                # 这种情况涉及很多坑,原来尝试了使用Room做中继,但是后续的功能没法无损移植上去,所以这个功能本系统就不支持了
+                                # 解决的办法还是让所有的User都能互相访问,不要出现内网对内网的情况
+                                # 或者搭建VPN
+                                # 或者使用端口映射
                                 pass
                     old_user_info_dict = copy.deepcopy(self._user_info_dict)
                 except Exception as err:
