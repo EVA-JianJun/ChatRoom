@@ -178,28 +178,34 @@ class ShareObjectMerge():
         self._server_share = server_user.myself.share
         self._client_share = client_user.myself.share
 
-        self._server_share_dict = self._server_share._share_dict
-        self._client_share_dict = self._client_share._share_dict
-
     def __str__(self) -> str:
-        self._server_share_dict.update(self._client_share_dict)
-        return str(self._server_share_dict)
+        self._server_share._share_dict.update(self._client_share._share_dict)
+        return str(self._server_share._share_dict)
 
     def __repr__(self) -> str:
-        self._server_share_dict.update(self._client_share_dict)
-        return str(self._server_share_dict)
+        self._server_share._share_dict.update(self._client_share._share_dict)
+        return str(self._server_share._share_dict)
 
     def __getitem__(self, key):
         try:
-            return self._server_share_dict[key]
+            return self._server_share._share_dict[key]
         except KeyError:
-            return self._client_share_dict[key]
+            return self._client_share._share_dict[key]
 
     def __setitem__(self, key, value):
         self.__setattr__(key, value)
 
     def __delitem__(self, key):
         self.__delattr__(key)
+
+    # 由于User是Server和Client合并,所以底层有两个一样的分享字典,我们做迭代的时候暴露其中一个就可以了
+    def __iter__(self):
+        # return itertools.chain(self._server_share._share_dict.__iter__(), self._client_share._share_dict.__iter__())
+        return self._server_share._share_dict.__iter__()
+
+    def _items_(self):
+        # return itertools.chain(self._server_share._share_dict.items(), self._client_share._share_dict.items())
+        return self._server_share._share_dict.items()
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -210,8 +216,8 @@ class ShareObjectMerge():
             self._server_share.__setattr__(attr, value)
             self._client_share.__setattr__(attr, value)
 
-            self._server_share_dict[attr] = value
-            self._client_share_dict[attr] = value
+            self._server_share._share_dict[attr] = value
+            self._client_share._share_dict[attr] = value
 
     def __delattr__(self, name: str) -> None:
         """ del """
@@ -226,11 +232,11 @@ class ShareObjectMerge():
             pass
 
         try:
-            del self._server_share_dict[name]
+            del self._server_share._share_dict[name]
         except KeyError:
             pass
         try:
-            del self._client_share_dict[name]
+            del self._client_share._share_dict[name]
         except KeyError:
             pass
 
@@ -255,28 +261,33 @@ class StatusObjectMerge():
         self._server_share = server_user.myself.status
         self._client_share = client_user.myself.status
 
-        self._server_share_dict = self._server_share._share_dict
-        self._client_share_dict = self._client_share._share_dict
-
     def __str__(self) -> str:
-        self._server_share_dict.update(self._client_share_dict)
-        return str(self._server_share_dict)
+        self._server_share._share_dict.update(self._client_share._share_dict)
+        return str(self._server_share._share_dict)
 
     def __repr__(self) -> str:
-        self._server_share_dict.update(self._client_share_dict)
-        return str(self._server_share_dict)
+        self._server_share._share_dict.update(self._client_share._share_dict)
+        return str(self._server_share._share_dict)
 
     def __getitem__(self, key):
         try:
-            return self._server_share_dict[key]
+            return self._server_share._share_dict[key]
         except KeyError:
-            return self._client_share_dict[key]
+            return self._client_share._share_dict[key]
 
     def __setitem__(self, key, value):
         self.__setattr__(key, value)
 
     def __delitem__(self, key):
         self.__delattr__(key)
+
+    def __iter__(self):
+        # return itertools.chain(self._server_share._share_dict.__iter__(), self._client_share._share_dict.__iter__())
+        return self._server_share._share_dict.__iter__()
+
+    def _items_(self):
+        # return itertools.chain(self._server_share._share_dict.items(), self._client_share._share_dict.items())
+        return self._server_share._share_dict.items()
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -287,8 +298,8 @@ class StatusObjectMerge():
             self._server_share.__setattr__(attr, value)
             self._client_share.__setattr__(attr, value)
 
-            self._server_share_dict[attr] = value
-            self._client_share_dict[attr] = value
+            self._server_share._share_dict[attr] = value
+            self._client_share._share_dict[attr] = value
 
     def __delattr__(self, name: str) -> None:
         """ del """
@@ -303,11 +314,11 @@ class StatusObjectMerge():
             pass
 
         try:
-            del self._server_share_dict[name]
+            del self._server_share._share_dict[name]
         except KeyError:
             pass
         try:
-            del self._client_share_dict[name]
+            del self._client_share._share_dict[name]
         except KeyError:
             pass
 
@@ -640,6 +651,7 @@ if __name__ == "__main__":
         user_bar = ChatRoom.User(
                 user_name="Bar",
                 user_password="abcdef",
+                encryption=False,
             )
 
         user_bar.default_callback()

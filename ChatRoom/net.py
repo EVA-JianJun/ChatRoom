@@ -13,6 +13,8 @@ from datetime import datetime
 from ChatRoom.encrypt import encrypt
 from ChatRoom.log import Log
 
+from ChatRoom.MessyServerHardware import MessyServerHardware
+
 class User():
     pass
 
@@ -40,6 +42,12 @@ class ShareObject(object):
 
     def __delitem__(self, key):
         self.__delattr__(key)
+
+    def __iter__(self):
+        return self._share_dict.__iter__()
+
+    def _items_(self):
+        return self._share_dict.items()
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -121,6 +129,8 @@ class StatusObject(object):
         self.__flush_time_interval = flush_time_interval
         self.__auto_flush_server()
 
+        self.__mshd = MessyServerHardware()
+
     def __str__(self) -> str:
         return str(self._share_dict)
 
@@ -135,6 +145,12 @@ class StatusObject(object):
 
     def __delitem__(self, key):
         self.__delattr__(key)
+
+    def __iter__(self):
+        return self._share_dict.__iter__()
+
+    def _items_(self):
+        return self._share_dict.items()
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
@@ -165,6 +181,11 @@ class StatusObject(object):
             while True:
                 try:
                     time.sleep(self.__flush_time_interval)
+                    self._share_dict = self.__mshd.get_all()
+
+                    for key, value in self._share_dict.items():
+                        self.__setattr__(key, value)
+
                     for user in [getattr(self._master.user, user_attr) for user_attr in dir(self._master.user) if not user_attr.startswith("_")]:
                         try:
                             user_name = user._name
@@ -211,6 +232,12 @@ class OUSObject(object):
 
     def __delitem__(self, key):
         self.__delattr__(key)
+
+    def __iter__(self):
+        return self._share_dict.__iter__()
+
+    def _items_(self):
+        return self._share_dict.items()
 
     def __setattr__(self, attr: str, value) -> None:
         """ set & modify"""
