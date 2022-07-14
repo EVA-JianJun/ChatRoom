@@ -298,13 +298,13 @@ class Node():
         uuid_id = uuid.uuid1()
         self._master.send(self._name, ["CMD_GET", uuid_id, get_name, data])
 
-        self._master.get_event_info_dict[uuid_id] = {
+        self._master._get_event_info_dict[uuid_id] = {
             "event" : threading.Event(),
         }
 
-        self._master.get_event_info_dict[uuid_id]["event"].clear()
-        if self._master.get_event_info_dict[uuid_id]["event"].wait(timeout):
-            return self._master.get_event_info_dict[uuid_id]["result"]
+        self._master._get_event_info_dict[uuid_id]["event"].clear()
+        if self._master._get_event_info_dict[uuid_id]["event"].wait(timeout):
+            return self._master._get_event_info_dict[uuid_id]["result"]
         else:
             raise Exception("TimeoutError: {0} {1} timeout err!".format(get_name, timeout))
 
@@ -404,11 +404,11 @@ class Server():
 
         self.recv_info_queue = queue.Queue()
 
-        self.get_event_info_dict = {}
+        self._get_event_info_dict = {}
 
-        self.recv_get_info_queue = queue.Queue()
+        self._recv_get_info_queue = queue.Queue()
 
-        self.get_callback_func_dict = {}
+        self._get_callback_func_dict = {}
 
         self._log = Log(log)
 
@@ -492,8 +492,7 @@ class Server():
             self._user_dict[client_name] = {}
             self._user_dict[client_name]["sock"] = sock
             self._user_dict[client_name]["pubkey"] = client_pubkey
-
-            exec('self.user.{0} = Node("{0}", self)'.format(client_name))
+            setattr(self.user, client_name, Node(client_name, self))
 
         password = self._recv_fun_encrypt(client_name)
         if password != self.password:
@@ -550,11 +549,11 @@ class Server():
                     self.recv_info_queue.put([client_name, recv_data[1]])
                 elif cmd == "CMD_GET":
                     # process ["CMD_GET", uuid_id, get_name, data]
-                    self.recv_get_info_queue.put([client_name, recv_data])
+                    self._recv_get_info_queue.put([client_name, recv_data])
                 elif cmd == "CMD_REGET":
                     # get result ["CMD_REGET", uuid_id, result_data]
-                    self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
-                    self.get_event_info_dict[recv_data[1]]["event"].set()
+                    self._get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                    self._get_event_info_dict[recv_data[1]]["event"].set()
                 elif cmd == "CMD_SHARE_UPDATE":
                     # ["CMD_SHARE_UPDATE", {attr:value}]
                     update_share_dict = recv_data[1]
@@ -603,7 +602,7 @@ class Server():
         return ["Undefined", data]
 
     def register_get_event_callback_func(self, get_name, func):
-        self.get_callback_func_dict[get_name] = func
+        self._get_callback_func_dict[get_name] = func
 
     def _get_event_callback_server(self):
         def server():
@@ -620,11 +619,11 @@ class Server():
             while True:
                 try:
                     # client_name, ["CMD_GET", uuid_id, get_name, data]
-                    client_name, recv_data = self.recv_get_info_queue.get()
+                    client_name, recv_data = self._recv_get_info_queue.get()
                     _, uuid_id, get_name, data = recv_data
 
                     try:
-                        callback_func = self.get_callback_func_dict[get_name]
+                        callback_func = self._get_callback_func_dict[get_name]
 
                         # 并发处理get请求
                         sub_th = threading.Thread(target=do_user_func_th, args=(client_name, callback_func, data, uuid_id))
@@ -646,7 +645,7 @@ class Server():
     def _disconnect_user_fun(self, *args, **kwargs):
         pass
 
-    def register_disconnect_user_fun(self, disconnect_user_fun):
+    def _register_disconnect_user_fun(self, disconnect_user_fun):
 
         self._disconnect_user_fun = disconnect_user_fun
 
@@ -706,14 +705,14 @@ class Server():
         self._log.log_debug_format_err("_disconnect", "disconnect")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
-        exec('del self.user.{0}'.format(client_name))
+        delattr(self.user, client_name)
 
     def _password_err(self, client_name):
         self._log.log_debug_format_err("_password_err", "password_err")
         self._send_fun_encrypt(client_name, "t%fgDYJdI35NJKS")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
-        exec('del self.user.{0}'.format(client_name))
+        delattr(self.user, client_name)
 
     def _password_correct(self, client_name):
         self._log.log_debug_format("_password_correct", "password_correct")
@@ -724,7 +723,7 @@ class Server():
         self._send_fun_encrypt(client_name, "Jif43DF$dsg")
         self._user_dict[client_name]["sock"].close()
         del self._user_dict[client_name]
-        exec('del self.user.{0}'.format(client_name))
+        delattr(self.user, client_name)
 
     def _login_correct(self, client_name):
         self._log.log_debug_format("_login_correct", "login_correct")
@@ -969,11 +968,11 @@ class Client():
 
         self.recv_info_queue = queue.Queue()
 
-        self.get_event_info_dict = {}
+        self._get_event_info_dict = {}
 
-        self.recv_get_info_queue = queue.Queue()
+        self._recv_get_info_queue = queue.Queue()
 
-        self.get_callback_func_dict = {}
+        self._get_callback_func_dict = {}
 
         self.is_encryption_dict = {}
 
@@ -1037,7 +1036,7 @@ class Client():
             self.is_encryption_dict[server_name] = True
         self._user_dict[server_name]["pubkey"] = server_pubkey
 
-        exec('self.user.{0} = Node("{0}", self)'.format(server_name))
+        setattr(self.user, server_name, Node(server_name, self))
 
         self._send_fun_encrypt(server_name, [self.client_name, self.client_password])
         self._send_fun_encrypt(server_name, password)
@@ -1140,14 +1139,14 @@ class Client():
     def _disconnect_user_fun(self, *args, **kwargs):
         pass
 
-    def register_disconnect_user_fun(self, disconnect_user_fun):
+    def _register_disconnect_user_fun(self, disconnect_user_fun):
 
         self._disconnect_user_fun = disconnect_user_fun
 
     def _connect_user_fun(self, *args, **kwargs):
         pass
 
-    def register_connect_user_fun(self, connect_user_fun):
+    def _register_connect_user_fun(self, connect_user_fun):
 
         self._connect_user_fun = connect_user_fun
 
@@ -1173,11 +1172,11 @@ class Client():
                         self.recv_info_queue.put([server_name, recv_data[1]])
                     elif cmd == "CMD_GET":
                         # process ["CMD_GET", uuid_id, get_name, data]
-                        self.recv_get_info_queue.put([server_name, recv_data])
+                        self._recv_get_info_queue.put([server_name, recv_data])
                     elif cmd == "CMD_REGET":
                         # get result ["CMD_REGET", uuid_id, result_data]
-                        self.get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
-                        self.get_event_info_dict[recv_data[1]]["event"].set()
+                        self._get_event_info_dict[recv_data[1]]["result"] = recv_data[2]
+                        self._get_event_info_dict[recv_data[1]]["event"].set()
                     elif cmd == "CMD_SHARE_UPDATE":
                         # ["CMD_SHARE_UPDATE", {attr:value}]
                         update_share_dict = recv_data[1]
@@ -1230,7 +1229,7 @@ class Client():
         return ["Undefined", data]
 
     def register_get_event_callback_func(self, get_name, func):
-        self.get_callback_func_dict[get_name] = func
+        self._get_callback_func_dict[get_name] = func
 
     def _get_event_callback_server(self):
         def server():
@@ -1247,11 +1246,11 @@ class Client():
             while True:
                 try:
                     # client_name, ["CMD_GET", uuid_id, get_name, data]
-                    client_name, recv_data = self.recv_get_info_queue.get()
+                    client_name, recv_data = self._recv_get_info_queue.get()
                     _, uuid_id, get_name, data = recv_data
 
                     try:
-                        callback_func = self.get_callback_func_dict[get_name]
+                        callback_func = self._get_callback_func_dict[get_name]
 
                         # 并发处理get请求
                         sub_th = threading.Thread(target=do_user_func_th, args=(client_name, callback_func, data, uuid_id))
@@ -1314,13 +1313,13 @@ class Client():
         self._log.log_debug_format_err("_disconnect", "disconnect")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
-        exec('del self.user.{0}'.format(server_name))
+        delattr(self.user, server_name)
 
     def _password_err(self, server_name):
         self._log.log_debug_format_err("_password_err", "password_err")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
-        exec('del self.user.{0}'.format(server_name))
+        delattr(self.user, server_name)
 
     def _password_correct(self):
         self._log.log_debug_format("_password_correct", "password_correct")
@@ -1329,7 +1328,7 @@ class Client():
         self._log.log_debug_format_err("_login_err", "login_err")
         self._user_dict[server_name]["sock"].close()
         del self._user_dict[server_name]
-        exec('del self.user.{0}'.format(server_name))
+        delattr(self.user, server_name)
 
     def _login_correct(self):
         self._log.log_debug_format("_login_correct", "login_correct")

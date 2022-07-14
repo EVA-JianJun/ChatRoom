@@ -62,7 +62,7 @@ class Room():
 
         self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption)
 
-        self.server.register_disconnect_user_fun(self._disconnect_callback)
+        self.server._register_disconnect_user_fun(self._disconnect_callback)
 
         self.user = self.server.user
 
@@ -103,7 +103,9 @@ class Room():
                     elif cmd == "CMD_GetUserNapwInfo":
                         # 向from_user发送其他user密码配置信息
                         # ['from_user', 'CMD_GetUserNapwInfo']
-                        exec("self.user.{0}.send(['CMD_UserNapwInfo', self.user_napw_info])".format(from_user))
+                        # exec("self.user.{0}.send(['CMD_UserNapwInfo', self.user_napw_info])".format(from_user))
+                        get_user = getattr(self.user, from_user)
+                        get_user.send(['CMD_UserNapwInfo', self.user_napw_info])
                     else:
                         print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                 except Exception as err:
@@ -146,15 +148,21 @@ class Room():
                         if user_info_a['lan_id'] == user_info_b['lan_id']:
                             # 同一局域网, 局域网互联, a连接b
                             #                                   cmd               name,                      ip,                port,                    password
-                            exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['local_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
+                            # exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['local_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
+                            get_user = getattr(self.user, user_a)
+                            get_user.send(['CMD_Connect', user_info_b['name'], user_info_b['local_ip'], user_info_b['port'], user_info_b['password']])
                         else:
                             # 不同局域网
                             if user_info_a['is_public_network']:
                                 # 公网a b去连接公网a
-                                exec("self.user.{0}.send(['CMD_Connect', user_info_a['name'], user_info_a['public_ip'], user_info_a['port'], user_info_a['password']])".format(user_b))
+                                # exec("self.user.{0}.send(['CMD_Connect', user_info_a['name'], user_info_a['public_ip'], user_info_a['port'], user_info_a['password']])".format(user_b))
+                                get_user = getattr(self.user, user_b)
+                                get_user.send(['CMD_Connect', user_info_a['name'], user_info_a['public_ip'], user_info_a['port'], user_info_a['password']])
                             elif user_info_b['is_public_network']:
                                 # 公网b a去连接公网b
-                                exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['public_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
+                                # exec("self.user.{0}.send(['CMD_Connect', user_info_b['name'], user_info_b['public_ip'], user_info_b['port'], user_info_b['password']])".format(user_a))
+                                get_user = getattr(self.user, user_a)
+                                get_user.send(['CMD_Connect', user_info_b['name'], user_info_b['public_ip'], user_info_b['port'], user_info_b['password']])
                             else:
                                 # 不同局域网下的a,b
                                 # 这种情况涉及很多坑,原来尝试了使用Room做中继,但是后续的功能没法无损移植上去,所以这个功能本系统就不支持了
@@ -338,7 +346,7 @@ class StatusObjectMerge():
 
 class User():
 
-    class UserUser():
+    class _UserUser():
         """ 合并Server和Client的User类 """
         class MySelf():
             """ 表层MySelf类 """
@@ -469,15 +477,15 @@ class User():
 
         # Redirect
         self.client.recv_info_queue = self.server.recv_info_queue
-        self.client.register_disconnect_user_fun(self._disconnect_callback)
-        self.client.register_connect_user_fun(self._connect_callback)
+        self.client._register_disconnect_user_fun(self._disconnect_callback)
+        self.client._register_connect_user_fun(self._connect_callback)
 
         self._callback_pretreatment(self.client.recv_info_queue)
 
         # 进入聊天室
         self.client.conncet("Room", self.room_ip, self.room_port, self.room_password)
 
-        self.user = self.UserUser(self.server.user, self.client.user)
+        self.user = self._UserUser(self.server.user, self.client.user)
 
     def _disconnect_callback(self):
         pass
