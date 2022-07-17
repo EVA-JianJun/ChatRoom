@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fd:
 
 setup(
     name = 'ChatRoom-jianjun',
-    version = '1.1.6',
+    version = '1.1.7',
     author = 'jianjun',
     author_email = '910667956@qq.com',
     url = 'https://github.com/EVA-JianJun/ChatRoom',
@@ -18,6 +18,7 @@ setup(
     install_requires = [
         "rsa>=4.0",
         "bcrypt>=3.2.0",
+        "alive-progress",
     ],
     entry_points={
     },

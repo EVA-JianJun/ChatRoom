@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import sys
 import time
 import uuid
@@ -6,9 +7,11 @@ import pickle
 import socket
 import queue
 import bcrypt
+import hashlib
 import threading
 import traceback
 from datetime import datetime
+from alive_progress import alive_bar
 
 from ChatRoom.encrypt import encrypt
 from ChatRoom.log import Log
@@ -261,6 +264,17 @@ class OUSObject(object):
         except KeyError:
             pass
 
+class SendFile(object):
+    def __init__(self, reve_user, source_file_path, remote_file_path):
+        self._uuid = uuid.uuid1()
+        self.reve_user = reve_user
+        self.source_file_path = source_file_path
+        self.remote_file_path = remote_file_path
+        self.md5 = ""
+        self.len = 0
+        self.statu = "waiting"
+        self.percent = 0
+
 class Node():
 
     def __init__(self, name, master):
@@ -308,7 +322,7 @@ class Node():
         else:
             raise Exception("TimeoutError: {0} {1} timeout err!".format(get_name, timeout))
 
-    def send_file(self, source_file_path, remote_file_path):
+    def send_file(self, source_file_path, remote_file_path, show=False):
         """
         文档:
             向其他集群节点发送文件
@@ -321,12 +335,31 @@ class Node():
 
         返回:
             file_status_object : object
-                这个对象的状态会随任务进度的程度而发生改变
-                waiting : 等待发送
-                sending : 发送中
-                success : 发送成功
-                md5err  : 发送完毕但md5错误
+                reve_user : str
+                    接收的用户名称
+                source_file_path : str
+                    本机需要发送的文件路径
+                remote_file_path : str
+                    对方接收文件的路径
+                md5 : str
+                    文件md5
+                len : int
+                    文件字节长度
+                statu  : str
+                    文件发送状态
+                    waiting : 等待发送
+                    sending : 发送中
+                    waitmd5 : 等待MD5校验
+                    success : 发送成功
+                    md5err  : 发送完毕但md5错误
+                percent : float
+                    文件发送百分比
         """
+
+        send_file = SendFile(self._name, source_file_path, remote_file_path)
+        self._master._send_file_task_queue.put([send_file, show])
+
+        return send_file
 
     def sync_file(self):
         """
@@ -404,6 +437,10 @@ class Server():
 
         self.recv_info_queue = queue.Queue()
 
+        self._send_file_task_queue = queue.Queue()
+
+        self._recv_file_task_queue = queue.Queue()
+
         self._get_event_info_dict = {}
 
         self._recv_get_info_queue = queue.Queue()
@@ -416,6 +453,8 @@ class Server():
 
         self._user_dict = {}
 
+        self._send_file_info_dict = {}
+
         self.ip_err_times_dict = {}
 
         self.is_encryption_dict = {}
@@ -427,6 +466,10 @@ class Server():
         self._connect_timeout_server()
 
         self._get_event_callback_server()
+
+        self._send_file_server()
+
+        self._recv_file_server()
 
     def _init_conncet(self):
 
@@ -591,6 +634,12 @@ class Server():
                     for del_key in get_user.status._share_dict.keys() - status_dict.keys():
                         del get_user.status._share_dict[del_key]
                         delattr(get_user.status, del_key)
+                elif cmd == "CMD_SEND_FILE":
+                    # ["CMD_SEND_FILE", xxx, xx, xx]
+                    self._recv_file_task_queue.put((client_name, recv_data))
+                elif cmd == "CMD_ERCV_FILE_MD5":
+                    # ['CMD_ERCV_FILE_MD5', "FILE_RECV_MD5", UUID('d6fbf782-0404-11ed-8912-68545ad0c824'), '9234cf4bffbd28432965c322c]
+                    self._recv_file_task_queue.put((client_name, recv_data))
                 else:
                     self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(client_name, recv_data))
             except Exception as err:
@@ -737,7 +786,9 @@ class Server():
     def _recv_fun_s(self, sock):
         try:
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -778,7 +829,9 @@ class Server():
     def _recv_fun_encrypt_s(self, sock):
         try:
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -791,8 +844,9 @@ class Server():
                 # 原来的补充剩余的
                 data_bytes += buff
 
-            rsaDecrypt_data_bytes = self._encrypt.rsaDecrypt(data_bytes)
-            func_args_dict = pickle.loads(rsaDecrypt_data_bytes)
+            if data_type != b'F':
+                data_bytes = self._encrypt.rsaDecrypt(data_bytes)
+            func_args_dict = pickle.loads(data_bytes)
 
             return func_args_dict
         except Exception as err:
@@ -825,7 +879,9 @@ class Server():
         try:
             sock = self._user_dict[client_name]["sock"]
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -866,7 +922,9 @@ class Server():
         try:
             sock = self._user_dict[client_name]["sock"]
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -879,7 +937,7 @@ class Server():
                 # 原来的补充剩余的
                 data_bytes += buff
 
-            if self.is_encryption_dict[client_name]:
+            if self.is_encryption_dict[client_name] and data_type != b'F':
                 data_bytes = self._encrypt.rsaDecrypt(data_bytes)
             func_args_dict = pickle.loads(data_bytes)
 
@@ -914,6 +972,164 @@ class Server():
         self._send_lock.acquire()
         try:
             self._send_fun_encrypt(client_name, data)
+        finally:
+            self._send_lock.release()
+
+    def _send_file_server(self):
+        def sub():
+
+            def get_file_size_str(file_size):
+                file_size = file_size / 1024
+                if file_size < 1000:
+                    return "{0:.2f}K".format(file_size)
+                else:
+                    file_size = file_size / 1024
+                    if file_size < 1000:
+                        return "{0:.2f}MB".format(file_size)
+                    else:
+                        file_size = file_size / 1024
+                        return "{0:.2f}GB".format(file_size)
+
+            while True:
+                try:
+                    send_file, show = self._send_file_task_queue.get()
+                    self._send_file_info_dict[send_file._uuid] = send_file
+
+                    source_file_path = send_file.source_file_path
+                    remote_file_path = send_file.remote_file_path
+                    reve_user = send_file.reve_user
+
+                    # 计算MD5
+                    with open(source_file_path, "rb") as frb:
+                        file_bytes_data = frb.read()
+                    send_file.len = len(file_bytes_data)
+                    send_file.md5 = hashlib.md5(file_bytes_data).hexdigest()
+                    del file_bytes_data
+
+                    # 发送文件
+                    send_file.statu = "sending"
+                    # 发送文件对象信息
+                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_INFO", send_file._uuid, send_file.reve_user, source_file_path, remote_file_path])
+                    # 发送文件流
+                    send_times = int((send_file.len / 1048576) + 2)
+
+                    if show:
+                        with open(source_file_path, "rb") as frb:
+                            with alive_bar(send_times, title="{0} {1}".format(source_file_path, get_file_size_str(send_file.len))) as bar:
+                                for index in range(send_times):
+                                    send_buff = frb.read(1048576)
+                                    if send_buff == b'':
+                                        send_file.percent = 1
+                                        bar()
+                                        continue
+                                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                    send_file.percent = index / send_times
+                                    bar()
+                    else:
+                        with open(source_file_path, "rb") as frb:
+                            for index in range(send_times):
+                                send_buff = frb.read(1048576)
+                                if send_buff == b'':
+                                    send_file.percent = 1
+                                    continue
+                                self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                send_file.percent = index / send_times
+
+                    # 发送接收完毕
+                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_END", send_file._uuid])
+
+                    send_file.statu = "waitmd5"
+
+                except Exception as err:
+                    self._log.log_info_format_err("Send File", "发送文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        send_file_server_th = threading.Thread(target=sub)
+        send_file_server_th.setDaemon(True)
+        send_file_server_th.start()
+
+    def _recv_file_server(self):
+        """ 接收_send_file_server服务发送过来的文件流 """
+        def sub():
+            while True:
+                try:
+                    send_user_name, file_data = self._recv_file_task_queue.get()
+                    file_cmd = file_data[1]
+                    if file_cmd == "FILE_INFO":
+                        # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path]
+                        send_file = SendFile(file_data[3], file_data[4], file_data[5])
+                        send_file._uuid = file_data[2]
+                        self._send_file_info_dict[send_file._uuid] = send_file
+                        # 检查路径,若文件存在就删除(覆盖),若路径不存在就新建
+                        remote_file_path = file_data[5]
+                        if os.path.isfile(remote_file_path):
+                            os.remove(remote_file_path)
+                        path, _ = os.path.split(remote_file_path)
+                        if not os.path.isdir(path):
+                            if path:
+                                os.makedirs(path)
+                    elif file_cmd == "FILE_BUFF":
+                        # ['CMD_SEND_FILE', 'FILE_BUFF', UUID('3ec7e3ac-03f7-11ed-a13e-68545ad0c824'), b'\xff\xd8\xff\xe1\x12\xc8Exif\x00\x00MM\x00*\]
+                        file_uuid = file_data[2]
+                        file_buff = file_data[3]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        remote_file_path = send_file.remote_file_path
+                        # 追加数据进文件
+                        with open(remote_file_path + '.crf', "ab") as fab:
+                            fab.write(file_buff)
+                    elif file_cmd == "FILE_END":
+                        # ['CMD_SEND_FILE', 'FILE_END', UUID('5302e4ee-03f7-11ed-8a81-68545ad0c824')]
+                        file_uuid = file_data[2]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        remote_file_path = send_file.remote_file_path
+                        # 复原文件名
+                        os.rename(remote_file_path + '.crf', remote_file_path)
+                        # 计算文件MD5
+                        with open(remote_file_path, "rb") as frb:
+                            file_bytes_data = frb.read()
+                        remote_file_md5 = hashlib.md5(file_bytes_data).hexdigest()
+                        # 发送给对方md5
+                        self.send(send_user_name, ["CMD_ERCV_FILE_MD5", "FILE_RECV_MD5", send_file._uuid, remote_file_md5])
+                    elif file_cmd == "FILE_RECV_MD5":
+                        # ['CMD_ERCV_FILE_MD5', "FILE_RECV_MD5", UUID('d6fbf782-0404-11ed-8912-68545ad0c824'), '9234cf4bffbd28432965c322c]
+                        file_uuid = file_data[2]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        if send_file.md5 ==  file_data[3]:
+                            send_file.statu = "success"
+                        else:
+                            self._log.log_info_format_err("Recv File", "接收端文件数据MD5错误! {0}".format(send_file.source_file_path))
+                            send_file.statu = "md5err"
+                except Exception as err:
+                    self._log.log_info_format_err("Recv File", "接收文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        recv_file_server_th = threading.Thread(target=sub)
+        recv_file_server_th.setDaemon(True)
+        recv_file_server_th.start()
+
+    def _send_fun_file(self, client_name, data):
+        try:
+            sock = self._user_dict[client_name]["sock"]
+            ds = pickle.dumps(data)
+
+            len_n = b'F' + '{:13}'.format(len(ds)).encode()
+
+            encrypt_data = len_n + ds
+            # 全部一起发送
+            sock.sendall(encrypt_data)
+        except Exception as err:
+            traceback.print_exc()
+            print(err)
+            self._disconnect(client_name)
+            raise err
+
+    def send_file(self, client_name, data):
+
+        self._send_lock.acquire()
+        try:
+            self._send_fun_file(client_name, data)
         finally:
             self._send_lock.release()
 
@@ -968,6 +1184,10 @@ class Client():
 
         self.recv_info_queue = queue.Queue()
 
+        self._send_file_task_queue = queue.Queue()
+
+        self._recv_file_task_queue = queue.Queue()
+
         self._get_event_info_dict = {}
 
         self._recv_get_info_queue = queue.Queue()
@@ -993,6 +1213,8 @@ class Client():
 
         self._user_dict = {}
 
+        self._send_file_info_dict = {}
+
         self._encrypt = encrypt()
 
         self._log = Log(log)
@@ -1007,6 +1229,10 @@ class Client():
         self._connect_timeout_server()
 
         self._get_event_callback_server()
+
+        self._send_file_server()
+
+        self._recv_file_server()
 
     def conncet(self, server_name, ip, port, password="abc123"):
 
@@ -1214,6 +1440,12 @@ class Client():
                         for del_key in get_user.status._share_dict.keys() - status_dict.keys():
                             del get_user.status._share_dict[del_key]
                             delattr(get_user.status, del_key)
+                    elif cmd == "CMD_SEND_FILE":
+                        # ["CMD_SEND_FILE", xxx, xx, xx]
+                        self._recv_file_task_queue.put((server_name, recv_data))
+                    elif cmd == "CMD_ERCV_FILE_MD5":
+                        # ['CMD_ERCV_FILE_MD5', "FILE_RECV_MD5", UUID('d6fbf782-0404-11ed-8912-68545ad0c824'), '9234cf4bffbd28432965c322c]
+                        self._recv_file_task_queue.put((server_name, recv_data))
                     else:
                         self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(server_name, recv_data))
                 except Exception as err:
@@ -1337,7 +1569,9 @@ class Client():
         try:
             sock = self._user_dict[server_name]["sock"]
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -1378,7 +1612,9 @@ class Client():
         try:
             sock = self._user_dict[server_name]["sock"]
             # 接收长度
-            len_n = int(sock.recv(14))
+            buff_frame = sock.recv(14)
+            data_type = buff_frame[:1]
+            len_n = int(buff_frame[1:])
             # 接收数据
             buff = sock.recv(len_n)
             data_bytes = buff
@@ -1391,7 +1627,7 @@ class Client():
                 # 原来的补充剩余的
                 data_bytes += buff
 
-            if self.is_encryption_dict[server_name]:
+            if self.is_encryption_dict[server_name] and data_type != b'F':
                 data_bytes = self._encrypt.rsaDecrypt(data_bytes)
             func_args_dict = pickle.loads(data_bytes)
 
@@ -1426,6 +1662,164 @@ class Client():
         self._send_lock.acquire()
         try:
             self._send_fun_encrypt(server_name, data)
+        finally:
+            self._send_lock.release()
+
+    def _send_file_server(self):
+        def sub():
+
+            def get_file_size_str(file_size):
+                file_size = file_size / 1024
+                if file_size < 1000:
+                    return "{0:.2f}K".format(file_size)
+                else:
+                    file_size = file_size / 1024
+                    if file_size < 1000:
+                        return "{0:.2f}MB".format(file_size)
+                    else:
+                        file_size = file_size / 1024
+                        return "{0:.2f}GB".format(file_size)
+
+            while True:
+                try:
+                    send_file, show = self._send_file_task_queue.get()
+                    self._send_file_info_dict[send_file._uuid] = send_file
+
+                    source_file_path = send_file.source_file_path
+                    remote_file_path = send_file.remote_file_path
+                    reve_user = send_file.reve_user
+
+                    # 计算MD5
+                    with open(source_file_path, "rb") as frb:
+                        file_bytes_data = frb.read()
+                    send_file.len = len(file_bytes_data)
+                    send_file.md5 = hashlib.md5(file_bytes_data).hexdigest()
+                    del file_bytes_data
+
+                    # 发送文件
+                    send_file.statu = "sending"
+                    # 发送文件对象信息
+                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_INFO", send_file._uuid, send_file.reve_user, source_file_path, remote_file_path])
+                    # 发送文件流
+                    send_times = int((send_file.len / 1048576) + 2)
+
+                    if show:
+                        with open(source_file_path, "rb") as frb:
+                            with alive_bar(send_times, title="{0} {1}".format(source_file_path, get_file_size_str(send_file.len))) as bar:
+                                for index in range(send_times):
+                                    send_buff = frb.read(1048576)
+                                    if send_buff == b'':
+                                        send_file.percent = 1
+                                        bar()
+                                        continue
+                                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                    send_file.percent = index / send_times
+                                    bar()
+                    else:
+                        with open(source_file_path, "rb") as frb:
+                            for index in range(send_times):
+                                send_buff = frb.read(1048576)
+                                if send_buff == b'':
+                                    send_file.percent = 1
+                                    continue
+                                self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                send_file.percent = index / send_times
+
+                    # 发送接收完毕
+                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_END", send_file._uuid])
+
+                    send_file.statu = "waitmd5"
+
+                except Exception as err:
+                    self._log.log_info_format_err("Send File", "发送文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        send_file_server_th = threading.Thread(target=sub)
+        send_file_server_th.setDaemon(True)
+        send_file_server_th.start()
+
+    def _recv_file_server(self):
+        """ 接收_send_file_server服务发送过来的文件流 """
+        def sub():
+            while True:
+                try:
+                    send_user_name, file_data = self._recv_file_task_queue.get()
+                    file_cmd = file_data[1]
+                    if file_cmd == "FILE_INFO":
+                        # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path]
+                        send_file = SendFile(file_data[3], file_data[4], file_data[5])
+                        send_file._uuid = file_data[2]
+                        self._send_file_info_dict[send_file._uuid] = send_file
+                        # 检查路径,若文件存在就删除(覆盖),若路径不存在就新建
+                        remote_file_path = file_data[5]
+                        if os.path.isfile(remote_file_path):
+                            os.remove(remote_file_path)
+                        path, _ = os.path.split(remote_file_path)
+                        if not os.path.isdir(path):
+                            if path:
+                                os.makedirs(path)
+                    elif file_cmd == "FILE_BUFF":
+                        # ['CMD_SEND_FILE', 'FILE_BUFF', UUID('3ec7e3ac-03f7-11ed-a13e-68545ad0c824'), b'\xff\xd8\xff\xe1\x12\xc8Exif\x00\x00MM\x00*\]
+                        file_uuid = file_data[2]
+                        file_buff = file_data[3]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        remote_file_path = send_file.remote_file_path
+                        # 追加数据进文件
+                        with open(remote_file_path + '.crf', "ab") as fab:
+                            fab.write(file_buff)
+                    elif file_cmd == "FILE_END":
+                        # ['CMD_SEND_FILE', 'FILE_END', UUID('5302e4ee-03f7-11ed-8a81-68545ad0c824')]
+                        file_uuid = file_data[2]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        remote_file_path = send_file.remote_file_path
+                        # 复原文件名
+                        os.rename(remote_file_path + '.crf', remote_file_path)
+                        # 计算文件MD5
+                        with open(remote_file_path, "rb") as frb:
+                            file_bytes_data = frb.read()
+                        remote_file_md5 = hashlib.md5(file_bytes_data).hexdigest()
+                        # 发送给对方md5
+                        self.send(send_user_name, ["CMD_ERCV_FILE_MD5", "FILE_RECV_MD5", send_file._uuid, remote_file_md5])
+                    elif file_cmd == "FILE_RECV_MD5":
+                        # ['CMD_ERCV_FILE_MD5', "FILE_RECV_MD5", UUID('d6fbf782-0404-11ed-8912-68545ad0c824'), '9234cf4bffbd28432965c322c]
+                        file_uuid = file_data[2]
+                        send_file = self._send_file_info_dict[file_uuid]
+                        if send_file.md5 ==  file_data[3]:
+                            send_file.statu = "success"
+                        else:
+                            self._log.log_info_format_err("Recv File", "接收端文件数据MD5错误! {0}".format(send_file.source_file_path))
+                            send_file.statu = "md5err"
+                except Exception as err:
+                    self._log.log_info_format_err("Recv File", "接收文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        recv_file_server_th = threading.Thread(target=sub)
+        recv_file_server_th.setDaemon(True)
+        recv_file_server_th.start()
+
+    def _send_fun_file(self, client_name, data):
+        try:
+            sock = self._user_dict[client_name]["sock"]
+            ds = pickle.dumps(data)
+
+            len_n = b'F' + '{:13}'.format(len(ds)).encode()
+
+            encrypt_data = len_n + ds
+            # 全部一起发送
+            sock.sendall(encrypt_data)
+        except Exception as err:
+            traceback.print_exc()
+            print(err)
+            self._disconnect(client_name)
+            raise err
+
+    def send_file(self, client_name, data):
+
+        self._send_lock.acquire()
+        try:
+            self._send_fun_file(client_name, data)
         finally:
             self._send_lock.release()
 
@@ -1508,7 +1902,7 @@ if __name__ == "__main__":
     client_1.conncet("Server" ,"127.0.0.1", 12345, password="abc123")
 
     # ============================================== Client_2 ============================================
-    client_2 = Client("Bar", "123456", log="INFO", auto_reconnect=True)
+    client_2 = Client("Bar", "123456", log="INFO", auto_reconnect=True, encryption=False)
 
     def client_test_get_callback_func(data):
         # do something
