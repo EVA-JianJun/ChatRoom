@@ -1183,6 +1183,9 @@ class Client():
             # 连接服务端, 服务端名称在客户端定义为Baz
             C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
         """
+        if client_name == "myself":
+            raise NameError('Client name not allowed to use "myself"')
+
         self.client_name = client_name
         self.client_password = client_password
 

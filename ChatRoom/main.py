@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
 import time
 import copy
 import queue
 import random
 import string
+import shutil
+import Mconfig
 import threading
 import itertools
 from datetime import datetime
@@ -106,6 +109,10 @@ class Room():
                         # exec("self.user.{0}.send(['CMD_UserNapwInfo', self.user_napw_info])".format(from_user))
                         get_user = getattr(self.user, from_user)
                         get_user.send(['CMD_UserNapwInfo', self.user_napw_info])
+                    elif cmd == "CMD_UserLog":
+                        # TODO 处理User日志信息
+                        # [from_user', ["CMD_UserLog", log_id, info]]
+                        print("recv log: ", recv_data)
                     else:
                         print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                 except Exception as err:
@@ -374,7 +381,7 @@ class User():
         def __dir__(self):
             return self._server_user.__dir__() + self._client_user.__dir__()
 
-    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True, white_list=[], black_list=[]):
+    def __init__(self, user_name, room_ip="", room_port=2428, room_password="Passable", public_ip="", server_port=0, user_password="", lan_id="Default", log="INFO", password_digits=16, encryption=True, white_list=[], black_list=[], log_config_file="LOG_CONFIG.py"):
         """
         文档:
             创建一个聊天室用户
@@ -412,6 +419,8 @@ class User():
                 白名单 : 如果设置白名单,只有白名单内的用户可以连接
             black_list : str (Default: [])
                 黑名单 : 如果设置黑名单,黑名单内的用户不可连接
+            log_config_file : str (Default: "LOG_CONFIG.py")
+                日志配置文件路径 : 配置当前user的日志信息
         例子:
             import ChatRoom
 
@@ -444,6 +453,17 @@ class User():
         self.recv_info_queue = queue.Queue()
 
         self.user_password = user_password
+
+        if log_config_file != 'LOG_CONFIG.py':
+            # 用户指定
+            self._log_config = Mconfig(log_config_file)
+        else:
+            # 使用默认
+            if not os.path.isfile('LOG_CONFIG.py'):
+                pac_path, _ = os.path.split(__file__)
+                default_config_file_path = os.path.join(pac_path, 'config', 'DEFAULT_LOG_CONFIG.py')
+                shutil.copyfile(default_config_file_path, 'LOG_CONFIG.py')
+            self._log_config = Mconfig(log_config_file)
 
         # 分组
         self.lan_id = lan_id
@@ -589,6 +609,33 @@ class User():
     def register_get_event_callback_func(self, get_name, func):
         self.client.register_get_event_callback_func(get_name, func)
         self.server.register_get_event_callback_func(get_name, func)
+
+    def log(self, log_id, log_type, log_info):
+        """
+        文档:
+            向Room发送一条日志记录
+
+        参数:
+            log_id : str
+                日志id
+            log_type : str
+                日志类型
+            info : str
+                日志信息
+        """
+        self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info))
+
+    def log_id(self, log_id):
+        """
+        文档:
+            向Room发送一条日志记录,只需要日志id参数
+
+        参数:
+            log_id : int
+                日志id
+        """
+        log_list = self._log_config.log_id_dict.get(log_id, ["Err", "LogIDErr"])
+        self.user.Room.send(("CMD_UserLog", log_id, log_list[0], log_list[1]))
 
 if __name__ == "__main__":
     """ ChatRoom 是单Room多User的形式运行的,实际使用中请创建多个User使用 """

@@ -19,6 +19,7 @@ setup(
         "rsa>=4.0",
         "bcrypt>=3.2.0",
         "alive-progress",
+        "Mconfig",
     ],
     entry_points={
     },
