@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import zlib
 import time
 import uuid
 import pickle
@@ -975,6 +976,17 @@ class Server():
         finally:
             self._send_lock.release()
 
+    def _md5sum(self, filename, blocksize=1048576):
+        hash = hashlib.md5()
+        with open(filename, "rb") as fb:
+            while True:
+                block = fb.read(blocksize)
+                if not block:
+                    break
+                hash.update(block)
+
+        return hash.hexdigest()
+
     def _send_file_server(self):
         def sub():
 
@@ -1000,11 +1012,9 @@ class Server():
                     reve_user = send_file.reve_user
 
                     # 计算MD5
-                    with open(source_file_path, "rb") as frb:
-                        file_bytes_data = frb.read()
-                    send_file.len = len(file_bytes_data)
-                    send_file.md5 = hashlib.md5(file_bytes_data).hexdigest()
-                    del file_bytes_data
+                    send_file.statu = "calcumd5"
+                    send_file.len = os.path.getsize(source_file_path)
+                    send_file.md5 = self._md5sum(source_file_path)
 
                     # 发送文件
                     send_file.statu = "sending"
@@ -1022,6 +1032,7 @@ class Server():
                                         send_file.percent = 1
                                         bar()
                                         continue
+                                    send_buff = zlib.compress(send_buff)
                                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                     send_file.percent = index / send_times
                                     bar()
@@ -1032,6 +1043,7 @@ class Server():
                                 if send_buff == b'':
                                     send_file.percent = 1
                                     continue
+                                send_buff = zlib.compress(send_buff)
                                 self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                 send_file.percent = index / send_times
 
@@ -1076,6 +1088,7 @@ class Server():
                         send_file = self._send_file_info_dict[file_uuid]
                         remote_file_path = send_file.remote_file_path
                         # 追加数据进文件
+                        file_buff = zlib.decompress(file_buff)
                         with open(remote_file_path + '.crf', "ab") as fab:
                             fab.write(file_buff)
                     elif file_cmd == "FILE_END":
@@ -1086,9 +1099,7 @@ class Server():
                         # 复原文件名
                         os.rename(remote_file_path + '.crf', remote_file_path)
                         # 计算文件MD5
-                        with open(remote_file_path, "rb") as frb:
-                            file_bytes_data = frb.read()
-                        remote_file_md5 = hashlib.md5(file_bytes_data).hexdigest()
+                        remote_file_md5 = self._md5sum(remote_file_path)
                         # 发送给对方md5
                         self.send(send_user_name, ["CMD_ERCV_FILE_MD5", "FILE_RECV_MD5", send_file._uuid, remote_file_md5])
                     elif file_cmd == "FILE_RECV_MD5":
@@ -1665,6 +1676,17 @@ class Client():
         finally:
             self._send_lock.release()
 
+    def _md5sum(self, filename, blocksize=1048576):
+        hash = hashlib.md5()
+        with open(filename, "rb") as fb:
+            while True:
+                block = fb.read(blocksize)
+                if not block:
+                    break
+                hash.update(block)
+
+        return hash.hexdigest()
+
     def _send_file_server(self):
         def sub():
 
@@ -1690,11 +1712,9 @@ class Client():
                     reve_user = send_file.reve_user
 
                     # 计算MD5
-                    with open(source_file_path, "rb") as frb:
-                        file_bytes_data = frb.read()
-                    send_file.len = len(file_bytes_data)
-                    send_file.md5 = hashlib.md5(file_bytes_data).hexdigest()
-                    del file_bytes_data
+                    send_file.statu = "calcumd5"
+                    send_file.len = os.path.getsize(source_file_path)
+                    send_file.md5 = self._md5sum(source_file_path)
 
                     # 发送文件
                     send_file.statu = "sending"
@@ -1712,6 +1732,7 @@ class Client():
                                         send_file.percent = 1
                                         bar()
                                         continue
+                                    send_buff = zlib.compress(send_buff)
                                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                     send_file.percent = index / send_times
                                     bar()
@@ -1722,6 +1743,7 @@ class Client():
                                 if send_buff == b'':
                                     send_file.percent = 1
                                     continue
+                                send_buff = zlib.compress(send_buff)
                                 self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                 send_file.percent = index / send_times
 
@@ -1766,6 +1788,7 @@ class Client():
                         send_file = self._send_file_info_dict[file_uuid]
                         remote_file_path = send_file.remote_file_path
                         # 追加数据进文件
+                        file_buff = zlib.decompress(file_buff)
                         with open(remote_file_path + '.crf', "ab") as fab:
                             fab.write(file_buff)
                     elif file_cmd == "FILE_END":
@@ -1776,9 +1799,7 @@ class Client():
                         # 复原文件名
                         os.rename(remote_file_path + '.crf', remote_file_path)
                         # 计算文件MD5
-                        with open(remote_file_path, "rb") as frb:
-                            file_bytes_data = frb.read()
-                        remote_file_md5 = hashlib.md5(file_bytes_data).hexdigest()
+                        remote_file_md5 = self._md5sum(remote_file_path)
                         # 发送给对方md5
                         self.send(send_user_name, ["CMD_ERCV_FILE_MD5", "FILE_RECV_MD5", send_file._uuid, remote_file_md5])
                     elif file_cmd == "FILE_RECV_MD5":
