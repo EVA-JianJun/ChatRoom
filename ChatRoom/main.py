@@ -112,7 +112,7 @@ class Room():
                     elif cmd == "CMD_UserLog":
                         # TODO 处理User日志信息
                         # [from_user', ["CMD_UserLog", log_id, info]]
-                        print("recv log: ", recv_data)
+                        self._log.log_info_format("LOG", recv_data)
                     else:
                         print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                 except Exception as err:

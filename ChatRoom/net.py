@@ -267,6 +267,9 @@ class OUSObject(object):
 
 class SendFile(object):
     def __init__(self, reve_user, source_file_path, remote_file_path):
+        # 常见压缩格式不进行数据流压缩
+        self._no_compress_type_list = ['exe', '7z', 'zip', 'rar', 'iso', 'bz', 'bz2', 'gz', 'xz']
+
         self._uuid = uuid.uuid1()
         self.reve_user = reve_user
         self.source_file_path = source_file_path
@@ -275,6 +278,13 @@ class SendFile(object):
         self.len = 0
         self.statu = "waiting"
         self.percent = 0
+        _, file_name = os.path.split(source_file_path)
+        _, file_type = file_name.split(".")
+        self._file_type = file_type
+        if self._file_type in self._no_compress_type_list:
+            self._compress_flag = False
+        else:
+            self._compress_flag = True
 
 class Node():
 
@@ -1002,6 +1012,12 @@ class Server():
                         file_size = file_size / 1024
                         return "{0:.2f}GB".format(file_size)
 
+            def compress_fun(send_buff):
+                return zlib.compress(send_buff)
+
+            def no_compress_fun(send_buff):
+                return send_buff
+
             while True:
                 try:
                     send_file, show = self._send_file_task_queue.get()
@@ -1023,6 +1039,11 @@ class Server():
                     # 发送文件流
                     send_times = int((send_file.len / 1048576) + 2)
 
+                    if send_file._compress_flag:
+                        used_compress_fun = compress_fun
+                    else:
+                        used_compress_fun = no_compress_fun
+
                     if show:
                         with open(source_file_path, "rb") as frb:
                             with alive_bar(send_times, title="{0} {1}".format(source_file_path, get_file_size_str(send_file.len))) as bar:
@@ -1032,7 +1053,7 @@ class Server():
                                         send_file.percent = 1
                                         bar()
                                         continue
-                                    send_buff = zlib.compress(send_buff)
+                                    send_buff = used_compress_fun(send_buff)
                                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                     send_file.percent = index / send_times
                                     bar()
@@ -1043,7 +1064,7 @@ class Server():
                                 if send_buff == b'':
                                     send_file.percent = 1
                                     continue
-                                send_buff = zlib.compress(send_buff)
+                                send_buff = used_compress_fun(send_buff)
                                 self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                 send_file.percent = index / send_times
 
@@ -1064,6 +1085,13 @@ class Server():
     def _recv_file_server(self):
         """ 接收_send_file_server服务发送过来的文件流 """
         def sub():
+
+            def de_compress_fun(file_buff):
+                return zlib.decompress(file_buff)
+
+            def no_de_compress_fun(file_buff):
+                return file_buff
+
             while True:
                 try:
                     send_user_name, file_data = self._recv_file_task_queue.get()
@@ -1071,6 +1099,10 @@ class Server():
                     if file_cmd == "FILE_INFO":
                         # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path]
                         send_file = SendFile(file_data[3], file_data[4], file_data[5])
+                        if send_file._compress_flag:
+                            send_file._used_de_compress_fun = de_compress_fun
+                        else:
+                            send_file._used_de_compress_fun = no_de_compress_fun
                         send_file._uuid = file_data[2]
                         self._send_file_info_dict[send_file._uuid] = send_file
                         # 检查路径,若文件存在就删除(覆盖),若路径不存在就新建
@@ -1088,7 +1120,7 @@ class Server():
                         send_file = self._send_file_info_dict[file_uuid]
                         remote_file_path = send_file.remote_file_path
                         # 追加数据进文件
-                        file_buff = zlib.decompress(file_buff)
+                        file_buff = send_file._used_de_compress_fun(file_buff)
                         with open(remote_file_path + '.crf', "ab") as fab:
                             fab.write(file_buff)
                     elif file_cmd == "FILE_END":
@@ -1705,6 +1737,12 @@ class Client():
                         file_size = file_size / 1024
                         return "{0:.2f}GB".format(file_size)
 
+            def compress_fun(send_buff):
+                return zlib.compress(send_buff)
+
+            def no_compress_fun(send_buff):
+                return send_buff
+
             while True:
                 try:
                     send_file, show = self._send_file_task_queue.get()
@@ -1726,6 +1764,11 @@ class Client():
                     # 发送文件流
                     send_times = int((send_file.len / 1048576) + 2)
 
+                    if send_file._compress_flag:
+                        used_compress_fun = compress_fun
+                    else:
+                        used_compress_fun = no_compress_fun
+
                     if show:
                         with open(source_file_path, "rb") as frb:
                             with alive_bar(send_times, title="{0} {1}".format(source_file_path, get_file_size_str(send_file.len))) as bar:
@@ -1735,7 +1778,7 @@ class Client():
                                         send_file.percent = 1
                                         bar()
                                         continue
-                                    send_buff = zlib.compress(send_buff)
+                                    send_buff = used_compress_fun(send_buff)
                                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                     send_file.percent = index / send_times
                                     bar()
@@ -1746,7 +1789,7 @@ class Client():
                                 if send_buff == b'':
                                     send_file.percent = 1
                                     continue
-                                send_buff = zlib.compress(send_buff)
+                                send_buff = used_compress_fun(send_buff)
                                 self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
                                 send_file.percent = index / send_times
 
@@ -1767,6 +1810,13 @@ class Client():
     def _recv_file_server(self):
         """ 接收_send_file_server服务发送过来的文件流 """
         def sub():
+
+            def de_compress_fun(file_buff):
+                return zlib.decompress(file_buff)
+
+            def no_de_compress_fun(file_buff):
+                return file_buff
+
             while True:
                 try:
                     send_user_name, file_data = self._recv_file_task_queue.get()
@@ -1774,6 +1824,10 @@ class Client():
                     if file_cmd == "FILE_INFO":
                         # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path]
                         send_file = SendFile(file_data[3], file_data[4], file_data[5])
+                        if send_file._compress_flag:
+                            send_file._used_de_compress_fun = de_compress_fun
+                        else:
+                            send_file._used_de_compress_fun = no_de_compress_fun
                         send_file._uuid = file_data[2]
                         self._send_file_info_dict[send_file._uuid] = send_file
                         # 检查路径,若文件存在就删除(覆盖),若路径不存在就新建
@@ -1791,7 +1845,7 @@ class Client():
                         send_file = self._send_file_info_dict[file_uuid]
                         remote_file_path = send_file.remote_file_path
                         # 追加数据进文件
-                        file_buff = zlib.decompress(file_buff)
+                        file_buff = send_file._used_de_compress_fun(file_buff)
                         with open(remote_file_path + '.crf', "ab") as fab:
                             fab.write(file_buff)
                     elif file_cmd == "FILE_END":
