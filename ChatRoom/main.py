@@ -111,7 +111,7 @@ class Room():
                         get_user.send(['CMD_UserNapwInfo', self.user_napw_info])
                     elif cmd == "CMD_UserLog":
                         # TODO 处理User日志信息
-                        # [from_user', ["CMD_UserLog", log_id, info]]
+                        # [from_user', ["CMD_UserLog", time.strftime('%Y-%m-%d %H:%M:%S'), log_id, log_type, log_info]
                         self._log.log_info_format("LOG", recv_data)
                     else:
                         print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
@@ -623,7 +623,7 @@ class User():
             info : str
                 日志信息
         """
-        self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info))
+        self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info, time.strftime('%Y-%m-%d %H:%M:%S')))
 
     def log_id(self, log_id):
         """
@@ -634,8 +634,8 @@ class User():
             log_id : int
                 日志id
         """
-        log_list = self._log_config.log_id_dict.get(log_id, ["Err", "LogIDErr"])
-        self.user.Room.send(("CMD_UserLog", log_id, log_list[0], log_list[1]))
+        log_list = self._log_config.LOG_ID_DICT.get(log_id, ["Err", "LogIDErr"])
+        self.user.Room.send(("CMD_UserLog", log_id, log_list[0], log_list[1], time.strftime('%Y-%m-%d %H:%M:%S')))
 
 if __name__ == "__main__":
     """ ChatRoom 是单Room多User的形式运行的,实际使用中请创建多个User使用 """

@@ -18,8 +18,10 @@ setup(
     install_requires = [
         "rsa>=4.0",
         "bcrypt>=3.2.0",
+        "psutil",
         "alive-progress",
         "Mconfig",
+        "ttkbootstrap",
     ],
     entry_points={
     },

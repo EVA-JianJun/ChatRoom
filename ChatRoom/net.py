@@ -279,7 +279,8 @@ class SendFile(object):
         self.statu = "waiting"
         self.percent = 0
         _, file_name = os.path.split(source_file_path)
-        _, file_type = file_name.split(".")
+        split_list = file_name.split(".")
+        file_type = split_list[-1]
         self._file_type = file_type
         if self._file_type in self._no_compress_type_list:
             self._compress_flag = False
