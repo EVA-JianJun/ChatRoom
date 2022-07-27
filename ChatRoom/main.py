@@ -399,13 +399,13 @@ class User():
                 需要连接的聊天室密码
             public_ip : str (Default: "")
                 如果本机拥有公网ip填写public_ip后本机被标记为公网ip用户
-                其他用户连接本用户都将通过此公网ip进行连接
+                除了内网互联其他用户连接本用户都将通过此公网ip进行连接
             server_port : int (Default: ramdom)
                 本机消息服务对外端口, 默认为 0 系统自动分配
                 请注意需要在各种安全组或防火墙开启此端口
             lan_id : str (Default: "Default")
                 默认为"Default", 局域网id, 由用户手动设置
-                同一局域网的用户请使用相同的局域网id, 这样同一内网下的用户将直接局域网互相连接
+                同一局域网的用户请设定相同的局域网id, 这样同一内网下的用户将直接局域网互相连接
             log : None or str (Default: "INFO")
                 日志等级
                     None: 除了错误什么都不显示
@@ -416,9 +416,9 @@ class User():
             encryption : bool(default True)
                 是否加密传输, 不加密效率较高
             white_list : str (Default: [])
-                白名单 : 如果设置白名单,只有白名单内的用户可以连接
+                用户白名单 : 如果设置白名单,只有白名单内的用户可以连接
             black_list : str (Default: [])
-                黑名单 : 如果设置黑名单,黑名单内的用户不可连接
+                用户黑名单 : 如果设置黑名单,黑名单内的用户不可连接
             log_config_file : str (Default: "LOG_CONFIG.py")
                 日志配置文件路径 : 配置当前user的日志信息
         例子:

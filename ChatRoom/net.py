@@ -11,8 +11,8 @@ import bcrypt
 import hashlib
 import threading
 import traceback
+from tqdm import tqdm
 from datetime import datetime
-from alive_progress import alive_bar
 
 from ChatRoom.log import Log
 from ChatRoom.encrypt import encrypt
@@ -24,7 +24,7 @@ FILE_MD5_BLOCKSIZE = 1048576
 class User():
     pass
 
-# ======================== 自身使用 =========================
+# ========================= 自身使用 ============================
 class ShareObject(object):
 
     def __init__(self, master, flush_time_interval=60):
@@ -267,6 +267,7 @@ class OUSObject(object):
         except KeyError:
             pass
 
+# ========================== 普通类 ============================
 class SendFile(object):
     def __init__(self, reve_user, source_file_path, remote_file_path, compress=None):
         # 常见压缩格式不进行数据流压缩
@@ -458,7 +459,7 @@ class Node():
 
         return send_file
 
-    def sync_file(self):
+    def send_path(self, source_path, remote_path, show=True, compress=False):
         """
         文档:
             返回同步文件夹下的所有文件路径列表
@@ -466,6 +467,42 @@ class Node():
         返回:
             同步文件夹下的所有文件路径列表
         """
+        def _md5sum(filename, blocksize=FILE_MD5_BLOCKSIZE):
+            hash = hashlib.md5()
+            with open(filename, "rb") as fb:
+                while True:
+                    block = fb.read(blocksize)
+                    if not block:
+                        break
+                    hash.update(block)
+
+            return hash.hexdigest()
+
+        def analysis_all_file_list(source_path, remote_path):
+            all_file_info_list = []
+
+            source_root = None
+
+            for cwd, dirs, files in os.walk(source_path):
+                if not source_root:
+                    source_root = cwd
+                for fname in files:
+                    all_file_info_list.append(
+                        {
+                            "source" : os.path.join(cwd, fname),
+                            "smd5"   : "",
+                            "remote" : os.path.join(cwd, fname).replace(source_root, remote_path),
+                            "rmd5"   : "",
+                        }
+                    )
+
+            return all_file_info_list
+
+        all_file_info_list = analysis_all_file_list(source_path, remote_path)
+        for file_info_dict in all_file_info_list:
+            file_info_dict["smd5"] = _md5sum(file_info_dict["source"])
+
+        self._master.send(self._name, ["CMD_SRND_PATH", file_info_dict])
 
 class Server():
 
@@ -500,7 +537,7 @@ class Server():
 
         例子:
             # Server
-            S = Server("127.0.0.1", 12345, password="abc123", log="INFO",
+            server = Server("127.0.0.1", 12345, password="abc123", log="INFO",
                     # user_napw_info={
                     #     "Foo" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
                     #     "Bar" : b'$2b$15$DFdThRBMcnv/doCGNa.W2.wvhGpJevxGDjV10QouNf1QGbXw8XWHi',
@@ -510,7 +547,7 @@ class Server():
 
             # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
             # 默认的回调函数只打印信息
-            S.default_callback_server()
+            server.default_callback_server()
         """
         self.ip = ip
         self.port = port
@@ -554,6 +591,8 @@ class Server():
         self._user_dict = {}
 
         self._send_file_info_dict = {}
+
+        self._send_file_user_lock_dict = {}
 
         self.ip_err_times_dict = {}
 
@@ -1073,11 +1112,14 @@ class Server():
 
     def send(self, client_name, data):
 
-        self._send_lock.acquire()
-        try:
-            self._send_fun_encrypt(client_name, data)
-        finally:
-            self._send_lock.release()
+        self._send_fun_encrypt(client_name, data)
+
+        # self._send_lock.acquire()
+        # try:
+        #     self._send_fun_encrypt(client_name, data)
+        # finally:
+        #     self._send_lock.release()
+        pass
 
     def _md5sum(self, filename, blocksize=FILE_MD5_BLOCKSIZE):
         hash = hashlib.md5()
@@ -1111,14 +1153,21 @@ class Server():
             def no_compress_fun(send_buff):
                 return send_buff
 
-            while True:
+            def send_file_th_server(send_file, show):
+                """ 发送文件线程 """
+                reve_user = send_file.reve_user
                 try:
-                    send_file, show = self._send_file_task_queue.get()
+                    user_lock = self._send_file_user_lock_dict[reve_user]
+                except KeyError:
+                    user_lock = threading.Lock()
+                    self._send_file_user_lock_dict[reve_user] = user_lock
+
+                user_lock.acquire()
+                try:
                     self._send_file_info_dict[send_file._uuid] = send_file
 
                     source_file_path = send_file.source_file_path
                     remote_file_path = send_file.remote_file_path
-                    reve_user = send_file.reve_user
 
                     # 计算MD5
                     send_file.statu = "calcumd5"
@@ -1141,18 +1190,19 @@ class Server():
 
                     if show:
                         with open(source_file_path, "rb") as frb:
-                            with alive_bar(send_times, title="Send: {0} {1} to {2}".format(source_file_path, get_file_size_str(send_file.len), reve_user)) as bar:
-                                for index in range(send_times):
-                                    send_buff = frb.read(FILE_SEND_BUFFER_SIZE)
-                                    # 注释掉这段是让发送方和接收方发送和接收的数据量一样多
-                                    # if send_buff == b'':
-                                    #     send_file.percent = 1
-                                    #     bar()
-                                    #     continue
-                                    send_buff = used_compress_fun(send_buff)
-                                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
-                                    send_file.percent = index / send_times
-                                    bar()
+                            file_name = source_file_path
+                            if len(source_file_path) > 50:
+                                file_name = "..." + source_file_path[-45:]
+                            title="Send: {0} {1} to {2}".format(file_name, get_file_size_str(send_file.len), reve_user)
+                            for index in tqdm(range(send_times), desc=title):
+                                send_buff = frb.read(FILE_SEND_BUFFER_SIZE)
+                                # 注释掉这段是让发送方和接收方发送和接收的数据量一样多
+                                # if send_buff == b'':
+                                #     send_file.percent = 1
+                                #     continue
+                                send_buff = used_compress_fun(send_buff)
+                                self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                send_file.percent = index / send_times
                             send_file.percent = 1
                     else:
                         with open(source_file_path, "rb") as frb:
@@ -1169,7 +1219,20 @@ class Server():
                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_END", send_file._uuid])
 
                     send_file.statu = "waitmd5"
+                except Exception as err:
+                    self._log.log_info_format_err("Send File TH", "发送文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+                finally:
+                    user_lock.release()
 
+            while True:
+                try:
+                    send_file, show = self._send_file_task_queue.get()
+
+                    send_file_th = threading.Thread(target=send_file_th_server, args=(send_file, show))
+                    send_file_th.setDaemon(True)
+                    send_file_th.start()
                 except Exception as err:
                     self._log.log_info_format_err("Send File", "发送文件数据流错误!")
                     traceback.print_exc()
@@ -1203,16 +1266,14 @@ class Server():
 
             def alive_bar_th(send_file, send_user_name, bar_queue, show):
                 if show:
-                    with alive_bar(send_file._send_times, title="Recv: {0} {1} from {2}".format(
-                            send_file.remote_file_path,
-                            get_file_size_str(send_file.len),
-                            send_user_name
-                            )) as bar:
-                        send_times = send_file._send_times
-                        for index in range(send_times):
-                            bar_queue.get()
-                            bar()
-                            send_file.percent = index / send_times
+                    file_name = send_file.remote_file_path
+                    if len(send_file.remote_file_path) > 50:
+                        file_name = "..." + send_file.remote_file_path[-45:]
+                    title="Recv: {0} {1} from {2}".format(file_name, get_file_size_str(send_file.len), send_user_name)
+                    send_times = send_file._send_times
+                    for index in tqdm(range(send_times), desc=title):
+                        bar_queue.get()
+                        send_file.percent = index / send_times
                     send_file.percent = 1
                 else:
                     send_times = send_file._send_times
@@ -1229,9 +1290,7 @@ class Server():
                         # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path, _compress_flag, send_times, len, md5, show]
                         try:
                             send_file = self._send_file_info_dict[file_data[2]]
-                            print("获取 RecvFile")
                         except KeyError:
-                            print("新建 RecvFile")
                             send_file = RecvFile(file_data[3], file_data[4], file_data[5], file_data[6])
                         send_file._send_times = file_data[7]
                         send_file._source_md5 = file_data[9]
@@ -1322,11 +1381,14 @@ class Server():
 
     def send_file(self, client_name, data):
 
-        self._send_lock.acquire()
-        try:
-            self._send_fun_file(client_name, data)
-        finally:
-            self._send_lock.release()
+        self._send_fun_file(client_name, data)
+
+        # self._send_lock.acquire()
+        # try:
+        #     self._send_fun_file(client_name, data)
+        # finally:
+        #     self._send_lock.release()
+        pass
 
     def get_user(self):
 
@@ -1361,14 +1423,14 @@ class Client():
 
         例子:
             # Client
-            C = Client("Foo", "123456", log="INFO", auto_reconnect=True, reconnect_name_whitelist=None)
+            client = Client("Foo", "123456", log="INFO", auto_reconnect=True, reconnect_name_whitelist=None)
 
             # 运行默认的回调函数(所有接受到的信息都在self.recv_info_queue队列里,需要用户手动实现回调函数并使用)
             # 默认的回调函数只打印信息
-            C.default_callback_server()
+            client.default_callback_server()
 
             # 连接服务端, 服务端名称在客户端定义为Baz
-            C.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
+            client.conncet("Baz" ,"127.0.0.1", 12345, password="abc123")
         """
         if client_name == "myself":
             raise NameError('Client name not allowed to use "myself"')
@@ -1415,6 +1477,8 @@ class Client():
         self._user_dict = {}
 
         self._send_file_info_dict = {}
+
+        self._send_file_user_lock_dict = {}
 
         self._encrypt = encrypt()
 
@@ -1864,11 +1928,14 @@ class Client():
 
     def send(self, server_name, data):
 
-        self._send_lock.acquire()
-        try:
-            self._send_fun_encrypt(server_name, data)
-        finally:
-            self._send_lock.release()
+        self._send_fun_encrypt(server_name, data)
+
+        # self._send_lock.acquire()
+        # try:
+        #     self._send_fun_encrypt(server_name, data)
+        # finally:
+        #     self._send_lock.release()
+        pass
 
     def _md5sum(self, filename, blocksize=FILE_MD5_BLOCKSIZE):
         hash = hashlib.md5()
@@ -1902,14 +1969,21 @@ class Client():
             def no_compress_fun(send_buff):
                 return send_buff
 
-            while True:
+            def send_file_th_server(send_file, show):
+                """ 发送文件线程 """
+                reve_user = send_file.reve_user
                 try:
-                    send_file, show = self._send_file_task_queue.get()
+                    user_lock = self._send_file_user_lock_dict[reve_user]
+                except KeyError:
+                    user_lock = threading.Lock()
+                    self._send_file_user_lock_dict[reve_user] = user_lock
+
+                user_lock.acquire()
+                try:
                     self._send_file_info_dict[send_file._uuid] = send_file
 
                     source_file_path = send_file.source_file_path
                     remote_file_path = send_file.remote_file_path
-                    reve_user = send_file.reve_user
 
                     # 计算MD5
                     send_file.statu = "calcumd5"
@@ -1932,18 +2006,19 @@ class Client():
 
                     if show:
                         with open(source_file_path, "rb") as frb:
-                            with alive_bar(send_times, title="Send: {0} {1} to {2}".format(source_file_path, get_file_size_str(send_file.len), reve_user)) as bar:
-                                for index in range(send_times):
-                                    send_buff = frb.read(FILE_SEND_BUFFER_SIZE)
-                                    # 注释掉这段是让发送方和接收方发送和接收的数据量一样多
-                                    # if send_buff == b'':
-                                    #     send_file.percent = 1
-                                    #     bar()
-                                    #     continue
-                                    send_buff = used_compress_fun(send_buff)
-                                    self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
-                                    send_file.percent = index / send_times
-                                    bar()
+                            file_name = source_file_path
+                            if len(source_file_path) > 50:
+                                file_name = "..." + source_file_path[-45:]
+                            title="Send: {0} {1} to {2}".format(file_name, get_file_size_str(send_file.len), reve_user)
+                            for index in tqdm(range(send_times), desc=title):
+                                send_buff = frb.read(FILE_SEND_BUFFER_SIZE)
+                                # 注释掉这段是让发送方和接收方发送和接收的数据量一样多
+                                # if send_buff == b'':
+                                #     send_file.percent = 1
+                                #     continue
+                                send_buff = used_compress_fun(send_buff)
+                                self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_BUFF", send_file._uuid, send_buff])
+                                send_file.percent = index / send_times
                             send_file.percent = 1
                     else:
                         with open(source_file_path, "rb") as frb:
@@ -1960,7 +2035,20 @@ class Client():
                     self.send_file(reve_user, ["CMD_SEND_FILE", "FILE_END", send_file._uuid])
 
                     send_file.statu = "waitmd5"
+                except Exception as err:
+                    self._log.log_info_format_err("Send File TH", "发送文件数据流错误!")
+                    traceback.print_exc()
+                    print(err)
+                finally:
+                    user_lock.release()
 
+            while True:
+                try:
+                    send_file, show = self._send_file_task_queue.get()
+
+                    send_file_th = threading.Thread(target=send_file_th_server, args=(send_file, show))
+                    send_file_th.setDaemon(True)
+                    send_file_th.start()
                 except Exception as err:
                     self._log.log_info_format_err("Send File", "发送文件数据流错误!")
                     traceback.print_exc()
@@ -1994,16 +2082,14 @@ class Client():
 
             def alive_bar_th(send_file, send_user_name, bar_queue, show):
                 if show:
-                    with alive_bar(send_file._send_times, title="Recv: {0} {1} from {2}".format(
-                            send_file.remote_file_path,
-                            get_file_size_str(send_file.len),
-                            send_user_name
-                            )) as bar:
-                        send_times = send_file._send_times
-                        for index in range(send_times):
-                            bar_queue.get()
-                            bar()
-                            send_file.percent = index / send_times
+                    file_name = send_file.remote_file_path
+                    if len(send_file.remote_file_path) > 50:
+                        file_name = "..." + send_file.remote_file_path[-45:]
+                    title="Recv: {0} {1} from {2}".format(file_name, get_file_size_str(send_file.len), send_user_name)
+                    send_times = send_file._send_times
+                    for index in tqdm(range(send_times), desc=title):
+                        bar_queue.get()
+                        send_file.percent = index / send_times
                     send_file.percent = 1
                 else:
                     send_times = send_file._send_times
@@ -2020,9 +2106,8 @@ class Client():
                         # ['CMD_SEND_FILE', 'FILE_INFO', uuid, name, source_file_path, remote_file_path, _compress_flag, send_times, len, md5, show]
                         try:
                             send_file = self._send_file_info_dict[file_data[2]]
-                            print("获取 RecvFile")
                         except KeyError:
-                            print("新建 RecvFile")
+                            send_file = RecvFile(file_data[3], file_data[4], file_data[5], file_data[6])
                         send_file._send_times = file_data[7]
                         send_file._source_md5 = file_data[9]
                         send_file.len = file_data[8]
@@ -2112,11 +2197,14 @@ class Client():
 
     def send_file(self, client_name, data):
 
-        self._send_lock.acquire()
-        try:
-            self._send_fun_file(client_name, data)
-        finally:
-            self._send_lock.release()
+        self._send_fun_file(client_name, data)
+
+        # self._send_lock.acquire()
+        # try:
+        #     self._send_fun_file(client_name, data)
+        # finally:
+        #     self._send_lock.release()
+        pass
 
     def get_user(self):
 

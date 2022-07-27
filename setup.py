@@ -19,7 +19,7 @@ setup(
         "rsa>=4.0",
         "bcrypt>=3.2.0",
         "psutil",
-        "alive-progress",
+        "tqdm",
         "Mconfig",
         "ttkbootstrap",
     ],
