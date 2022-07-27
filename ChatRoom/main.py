@@ -450,6 +450,9 @@ class User():
 
         self._log = Log(log)
 
+        self._err_log_cache_queue = queue.Queue()
+        self._err_log_resend_server()
+
         self.recv_info_queue = queue.Queue()
 
         self.user_password = user_password
@@ -610,6 +613,23 @@ class User():
         self.client.register_get_event_callback_func(get_name, func)
         self.server.register_get_event_callback_func(get_name, func)
 
+    def _err_log_resend_server(self):
+
+        def sub():
+            while True:
+                time.sleep(20)
+                if self._err_log_cache_queue.empty():
+                    continue
+                all_log_list = []
+                while not self._err_log_cache_queue.empty():
+                    all_log_list.append(self._err_log_cache_queue.get())
+                for log_id, log_type, log_info in all_log_list:
+                    self.log(log_id, log_type, log_info)
+
+        sub_th = threading.Thread(target=sub)
+        sub_th.setDaemon(True)
+        sub_th.start()
+
     def log(self, log_id, log_type, log_info):
         """
         文档:
@@ -623,7 +643,11 @@ class User():
             info : str
                 日志信息
         """
-        self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info, time.strftime('%Y-%m-%d %H:%M:%S')))
+        try:
+            self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info, time.strftime('%Y-%m-%d %H:%M:%S')))
+        except Exception:
+            self._log.log_info_format_err("Send log Err", log_id)
+            self._err_log_cache_queue.put((log_id, log_type, log_info))
 
     def log_id(self, log_id):
         """
@@ -631,11 +655,11 @@ class User():
             向Room发送一条日志记录,只需要日志id参数
 
         参数:
-            log_id : int
+            log_id : str
                 日志id
         """
-        log_list = self._log_config.LOG_ID_DICT.get(log_id, ["Err", "LogIDErr"])
-        self.user.Room.send(("CMD_UserLog", log_id, log_list[0], log_list[1], time.strftime('%Y-%m-%d %H:%M:%S')))
+        log_list = self._log_config.LOG_ID_DICT.get(str(log_id), ["Err", "LogIDErr"])
+        self.log(log_id, log_list[0], log_list[1])
 
 if __name__ == "__main__":
     """ ChatRoom 是单Room多User的形式运行的,实际使用中请创建多个User使用 """

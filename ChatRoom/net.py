@@ -412,6 +412,8 @@ class Node():
                 percent : float
                     文件发送百分比
         """
+        if not os.path.isfile(source_file_path):
+            raise FileNotFoundError(source_file_path)
 
         send_file = SendFile(self._name, source_file_path, remote_file_path, compress)
         if uuid:
