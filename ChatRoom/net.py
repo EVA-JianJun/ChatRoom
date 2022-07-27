@@ -14,9 +14,13 @@ import traceback
 from tqdm import tqdm
 from datetime import datetime
 
+import ChatRoom
 from ChatRoom.log import Log
 from ChatRoom.encrypt import encrypt
 from ChatRoom.MessyServerHardware import MessyServerHardware
+
+FILE_LOG_FILE_PATH = os.path.join(ChatRoom.__file__.replace("__init__.py", ""), "file_log.log")
+FILE_LOG_LOCK = threading.Lock()
 
 FILE_SEND_BUFFER_SIZE = 1048576
 FILE_MD5_BLOCKSIZE = 1048576
@@ -369,7 +373,7 @@ class Node():
         else:
             raise Exception("TimeoutError: {0} {1} timeout err!".format(get_name, timeout))
 
-    def send_file(self, source_file_path, remote_file_path, show=False, compress=False, uuid=None):
+    def send_file(self, source_file_path, remote_file_path, show=False, compress=False, uuid=None, wait=False):
         """
         文档:
             向其他集群节点发送文件
@@ -383,6 +387,8 @@ class Node():
                 是否显示发送进度
             compress : bool (default False)
                 是否压缩传输, 默认不压缩, 设置为None可以自动根据文件类型判断
+            wait : bool (default False)
+                是否等待文件传输完成后再返回, 次模式下如果md5校验失败会尝试重新发送一次
 
         返回:
             file_status_object : object
@@ -412,9 +418,26 @@ class Node():
             send_file._uuid = uuid
         self._master._send_file_task_queue.put([send_file, show])
 
-        return send_file
+        if wait:
+            while True:
+                time.sleep(1)
+                if send_file.statu == "success":
+                    return send_file
+                elif send_file.statu == "md5err":
+                    self._master._log.log_info_format_err("Send MD5 ERR", source_file_path)
+                    # 出错重试一次
+                    new_send_file = self.send_file(source_file_path, remote_file_path, show=show, compress=compress, wait=False)
+                    while True:
+                        time.sleep(1)
+                        if new_send_file.statu == "success":
+                            return new_send_file
+                        elif new_send_file.statu == "md5err":
+                            self._master._log.log_info_format_err("Send MD5 RERR", source_file_path)
+                            return new_send_file
+        else:
+            return send_file
 
-    def recv_file(self, remote_file_path, source_file_path, show=False, compress=False):
+    def recv_file(self, remote_file_path, source_file_path, show=False, compress=False, wait=False):
         """
         文档:
             向其他集群节点下载文件
@@ -428,6 +451,8 @@ class Node():
                 是否显示发送进度
             compress : bool (default False)
                 是否压缩传输, 默认不压缩, 设置为None可以自动根据文件类型判断
+            wait : bool (default False)
+                是否等待文件传输完成后再返回, 次模式下如果md5校验失败会尝试接收发送一次
 
         返回:
             file_status_object : object
@@ -457,7 +482,24 @@ class Node():
         self._master._send_file_info_dict[send_file._uuid] = send_file
         self._master.send(self._name, ["CMD_RECV_FILE", remote_file_path, source_file_path, show, compress, r_uuid])
 
-        return send_file
+        if wait:
+            while True:
+                time.sleep(1)
+                if send_file.statu == "success":
+                    return send_file
+                elif send_file.statu == "md5err":
+                    self._master._log.log_info_format_err("MD5 ERR", source_file_path)
+                    # 出错重试一次
+                    new_send_file = self.recv_file(remote_file_path, source_file_path, show=show, compress=compress, wait=False)
+                    while True:
+                        time.sleep(1)
+                        if new_send_file.statu == "success":
+                            return new_send_file
+                        elif new_send_file.statu == "md5err":
+                            self._master._log.log_info_format_err("MD5 R ERR", source_file_path)
+                            return new_send_file
+        else:
+            return send_file
 
     def send_path(self, source_path, remote_path, show=True, compress=False):
         """
@@ -506,7 +548,7 @@ class Node():
 
 class Server():
 
-    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None, encryption=True, safe_path_list=None):
+    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None, encryption=True):
         """
         文档:
             建立一个服务端
@@ -531,9 +573,6 @@ class Server():
                 ip黑名单, 在这个列表中的ip无法连接服务端
             encryption : bool(default True)
                 是否加密传输, 不加密效率较高
-            safe_path_list : list(default [])
-                安全文件夹列表, 在文件传输中如果设定了此列表, 只有该列表内的路径内文件可以用于上传和下载
-                默认为[]不做任何限制
 
         例子:
             # Server
@@ -1188,6 +1227,16 @@ class Server():
                     else:
                         used_compress_fun = no_compress_fun
 
+                    FILE_LOG_LOCK.acquire()
+                    try:
+                        with open(FILE_LOG_FILE_PATH, "a") as fa:
+                            fa.write("{0}: Send to {1} {2}\n".format(
+                            time.strftime('%Y-%m-%d %H:%M:%S'),
+                            reve_user,
+                            source_file_path,
+                            ))
+                    finally:
+                        FILE_LOG_LOCK.release()
                     if show:
                         with open(source_file_path, "rb") as frb:
                             file_name = source_file_path
@@ -1317,6 +1366,17 @@ class Server():
                             if path:
                                 os.makedirs(path)
                         send_file.statu = "recving"
+
+                        FILE_LOG_LOCK.acquire()
+                        try:
+                            with open(FILE_LOG_FILE_PATH, "a") as fa:
+                                fa.write("{0}: Recv from {1} {2}\n".format(
+                                    time.strftime('%Y-%m-%d %H:%M:%S'),
+                                    send_user_name,
+                                    remote_file_path,
+                                ))
+                        finally:
+                            FILE_LOG_LOCK.release()
                     elif file_cmd == "FILE_BUFF":
                         # ['CMD_SEND_FILE', 'FILE_BUFF', UUID('3ec7e3ac-03f7-11ed-a13e-68545ad0c824'), b'\xff\xd8\xff\xe1\x12\xc8Exif\x00\x00MM\x00*\]
                         file_uuid = file_data[2]
@@ -1396,7 +1456,7 @@ class Server():
 
 class Client():
 
-    def __init__(self, client_name, client_password, log=None, auto_reconnect=False, reconnect_name_whitelist=None, encryption=True, safe_path_list=None):
+    def __init__(self, client_name, client_password, log=None, auto_reconnect=False, reconnect_name_whitelist=None, encryption=True):
         """
         文档:
             创建一个客户端
@@ -1417,9 +1477,6 @@ class Client():
                 如果reconnect_name_whitelist不为空, 则重新连接只会连接客户端名称在reconnect_name_whitelist里的服务端
             encryption : bool(default True)
                 是否加密传输, 不加密效率较高
-            safe_path_list : list(default [])
-                安全文件夹列表, 在文件传输中如果设定了此列表, 只有该列表内的路径内文件可以用于上传和下载
-                默认为[]不做任何限制
 
         例子:
             # Client
@@ -2004,6 +2061,16 @@ class Client():
                     else:
                         used_compress_fun = no_compress_fun
 
+                    FILE_LOG_LOCK.acquire()
+                    try:
+                        with open(FILE_LOG_FILE_PATH, "a") as fa:
+                            fa.write("{0}: Send to {1} {2}\n".format(
+                            time.strftime('%Y-%m-%d %H:%M:%S'),
+                            reve_user,
+                            source_file_path,
+                            ))
+                    finally:
+                        FILE_LOG_LOCK.release()
                     if show:
                         with open(source_file_path, "rb") as frb:
                             file_name = source_file_path
@@ -2133,6 +2200,17 @@ class Client():
                             if path:
                                 os.makedirs(path)
                         send_file.statu = "recving"
+
+                        FILE_LOG_LOCK.acquire()
+                        try:
+                            with open(FILE_LOG_FILE_PATH, "a") as fa:
+                                fa.write("{0}: Recv from {1} {2}\n".format(
+                                    time.strftime('%Y-%m-%d %H:%M:%S'),
+                                    send_user_name,
+                                    remote_file_path,
+                                ))
+                        finally:
+                            FILE_LOG_LOCK.release()
                     elif file_cmd == "FILE_BUFF":
                         # ['CMD_SEND_FILE', 'FILE_BUFF', UUID('3ec7e3ac-03f7-11ed-a13e-68545ad0c824'), b'\xff\xd8\xff\xe1\x12\xc8Exif\x00\x00MM\x00*\]
                         file_uuid = file_data[2]
