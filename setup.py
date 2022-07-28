@@ -18,10 +18,10 @@ setup(
     install_requires = [
         "rsa>=4.0",
         "bcrypt>=3.2.0",
-        "psutil",
-        "tqdm",
-        "Mconfig",
-        "ttkbootstrap",
+        "psutil>=5.7.0",
+        "tqdm>=4.44.1",
+        "Mconfig>=1.1.4",
+        "ttkbootstrap>=1.9.0",
     ],
     entry_points={
     },

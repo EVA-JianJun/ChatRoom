@@ -12,6 +12,7 @@ import hashlib
 import threading
 import traceback
 from tqdm import tqdm
+from pathlib import Path
 from datetime import datetime
 
 import ChatRoom
@@ -388,7 +389,7 @@ class Node():
             compress : bool (default False)
                 是否压缩传输, 默认不压缩, 设置为None可以自动根据文件类型判断
             wait : bool (default False)
-                是否等待文件传输完成后再返回, 次模式下如果md5校验失败会尝试重新发送一次
+                是否等待文件传输完成后再返回, 此模式下如果md5校验失败会尝试重新发送一次
 
         返回:
             file_status_object : object
@@ -454,7 +455,7 @@ class Node():
             compress : bool (default False)
                 是否压缩传输, 默认不压缩, 设置为None可以自动根据文件类型判断
             wait : bool (default False)
-                是否等待文件传输完成后再返回, 次模式下如果md5校验失败会尝试接收发送一次
+                是否等待文件传输完成后再返回, 此模式下如果md5校验失败会尝试接收发送一次
 
         返回:
             file_status_object : object
@@ -506,10 +507,18 @@ class Node():
     def send_path(self, source_path, remote_path, show=True, compress=False):
         """
         文档:
-            返回同步文件夹下的所有文件路径列表
+            发送一个文件夹下所有文件, 若远程文件目录有对应文件则会跳过, 只发送改变的文件
+            无法发送空文件夹
 
-        返回:
-            同步文件夹下的所有文件路径列表
+        参数:
+            source_path : str
+                需要发送的目录
+            remote_path : str
+                对方接收的目录
+            show : bool (default False)
+                是否显示发送进度
+            compress : bool (default False)
+                是否压缩传输, 默认不压缩, 设置为None可以自动根据文件类型判断
         """
         def _md5sum(filename, blocksize=FILE_MD5_BLOCKSIZE):
             hash = hashlib.md5()
@@ -523,30 +532,79 @@ class Node():
             return hash.hexdigest()
 
         def analysis_all_file_list(source_path, remote_path):
+
+            def get_all_file(source_path, yes_root=''):
+                """ 获取某个路径下不带根路径的文件列表 """
+                all_file_list = []
+                root = source_path
+                for path in os.listdir(source_path):
+                    join_path = os.path.join(root, path)
+                    yes_path = os.path.join(yes_root, path)
+                    if os.path.isdir(join_path):
+                        # is path
+                        all_file_list.extend(get_all_file(join_path, yes_root=yes_path))
+                    else:
+                        all_file_list.append(yes_path)
+
+                return all_file_list
+
+            all_file_list = get_all_file(source_path)
+
             all_file_info_list = []
-
-            source_root = None
-
-            for cwd, dirs, files in os.walk(source_path):
-                if not source_root:
-                    source_root = cwd
-                for fname in files:
-                    all_file_info_list.append(
-                        {
-                            "source" : os.path.join(cwd, fname),
-                            "smd5"   : "",
-                            "remote" : os.path.join(cwd, fname).replace(source_root, remote_path),
-                            "rmd5"   : "",
-                        }
-                    )
+            for file in all_file_list:
+                all_file_info_list.append(
+                    {
+                        "source" : os.path.join(source_path, file),
+                        "smd5"   : "",
+                        "remote" : os.path.join(remote_path, file),
+                        "rmd5"   : "",
+                    }
+                )
 
             return all_file_info_list
+
+        if remote_path in ('', '.', '\\', '/'):
+            raise ValueError("不允许使用根路径, 请至少指定一个文件夹!")
+        if remote_path[:2] in ('c:' 'C:'):
+            raise ValueError("不允许发送到系统目录!")
 
         all_file_info_list = analysis_all_file_list(source_path, remote_path)
         for file_info_dict in all_file_info_list:
             file_info_dict["smd5"] = _md5sum(file_info_dict["source"])
 
-        self._master.send(self._name, ["CMD_SRND_PATH", file_info_dict])
+        task_uuid = uuid.uuid1()
+        self._master._send_path_task_dict[task_uuid] = {}
+        self._master._send_path_task_dict[task_uuid]['event'] = threading.Event()
+        self._master._send_path_task_dict[task_uuid]['event'].clear()
+
+        self._master.send(self._name, ["CMD_SRND_PATH", all_file_info_list, remote_path, task_uuid])
+
+        self._master._send_path_task_dict[task_uuid]['event'].wait()
+
+        all_file_info_list = self._master._send_path_task_dict[task_uuid]['all_file_info_list']
+
+        all_task_list = []
+        for file_info_dict in all_file_info_list:
+            if file_info_dict["smd5"] != file_info_dict["rmd5"]:
+                send_file = self.send_file(file_info_dict["source"], file_info_dict["remote"], show=show, compress=compress, wait=False)
+                all_task_list.append(send_file)
+            else:
+                print("Skip same file: {0}".format(file_info_dict["source"]))
+
+        while True:
+            time.sleep(1)
+            all_down_flag = True
+            for send_file in all_task_list:
+                if send_file.statu != "success":
+                    all_down_flag = False
+                if send_file.statu == "md5err":
+                    # 重新发送
+                    new_send_file = self.send_file(send_file.source_file_path, send_file.remote_file_path, show=show, compress=compress, wait=True)
+                    if new_send_file.statu == "md5err":
+                        raise ValueError("Send File MD5 Err!")
+
+            if all_down_flag:
+                break
 
 class Server():
 
@@ -619,6 +677,10 @@ class Server():
 
         self._recv_file_task_queue = queue.Queue()
 
+        self._recv_path_task_queue = queue.Queue()
+
+        self._send_path_task_dict = {}
+
         self._get_event_info_dict = {}
 
         self._recv_get_info_queue = queue.Queue()
@@ -650,6 +712,8 @@ class Server():
         self._send_file_server()
 
         self._recv_file_server()
+
+        self._recv_path_server()
 
     def _init_conncet(self):
 
@@ -824,6 +888,13 @@ class Server():
                     # ["CMD_RECV_FILE", remote_file_path, source_file_path, show, compress, uuid] server_name
                     user_obj = getattr(self.user, client_name)
                     user_obj.send_file(recv_data[1], recv_data[2], show=recv_data[3], compress=recv_data[4], uuid=recv_data[5])
+                elif cmd == "CMD_SRND_PATH":
+                    # ["CMD_SRND_PATH", all_file_info_list, remote_path, task_uuid]
+                    self._recv_path_task_queue.put((recv_data[1], recv_data[2], client_name, recv_data[3]))
+                elif cmd == "CMD_RECV_PATH":
+                    # ["CMD_RECV_PATH", task_uuid, all_file_info_list]
+                    self._send_path_task_dict[recv_data[1]]['all_file_info_list'] = recv_data[2]
+                    self._send_path_task_dict[recv_data[1]]['event'].set()
                 else:
                     self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(client_name, recv_data))
             except Exception as err:
@@ -1425,6 +1496,111 @@ class Server():
         recv_file_server_th.setDaemon(True)
         recv_file_server_th.start()
 
+    def _recv_path_server(self):
+        """ 接收目录文件服务线程 """
+        def sub():
+
+            def getAllFiles(folder):
+                """ 获取某个路径全文件 """
+                filepath_list = []
+                for root, folder_names, file_names in os.walk(folder):
+                    for file_name in file_names:
+                        file_path = os.path.join(root, file_name)
+                        filepath_list.append(file_path)
+                        # print(file_path)
+                return filepath_list
+
+            def del_emp_dir(path):
+                """ 删除空文件夹 """
+                # 这个函数对空文件夹下的空文件夹每次调用只能删除一个,需要多次调用
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+            def _md5sum(filename, blocksize=FILE_MD5_BLOCKSIZE):
+                hash = hashlib.md5()
+                with open(filename, "rb") as fb:
+                    while True:
+                        block = fb.read(blocksize)
+                        if not block:
+                            break
+                        hash.update(block)
+
+                return hash.hexdigest()
+
+            while True:
+                try:
+                    all_file_info_list, remote_path, send_user_name, task_uuid = self._recv_path_task_queue.get()
+                    # [{'source': '.\\.Room\\log.db',
+                    # 'smd5': 'dd42eea5d5d99ffb9fa8319e01967f10',
+                    # 'remote': 'H:\\path\\.Room\\log.db',
+                    # 'rmd5': ''},
+                    # {'source': '.\\新建 RTF 文档.rtf',
+                    # 'smd5': '8274425de767b30b2fff1124ab54abb5',
+                    # 'remote': 'H:\\path\\新建 RTF 文档.rtf',
+                    # 'rmd5': ''}]
+
+                    # 安全检测
+                    if remote_path in ('', '.', '\\', '/') or remote_path[:2] in ('c:' 'C:'):
+                        # 发送空
+                        self.send(send_user_name, ["CMD_RECV_PATH", task_uuid, []])
+
+                    # 删除多余文件
+                    all_send_file_path_list = []
+                    for file_info in all_file_info_list:
+                        # 获得绝对路径
+                        all_send_file_path_list.append(Path(file_info['remote']).absolute())
+
+                    for local_file_path in getAllFiles(remote_path):
+                        if Path(local_file_path).absolute() not in all_send_file_path_list:
+                            # 如果本地的这个文件不在列表, 就删除
+                            print("删除:", local_file_path)
+                            os.remove(local_file_path)
+
+                    # 删除空文件夹
+                    del_emp_dir(remote_path)
+
+                    # 计算md5
+                    for file_info in all_file_info_list:
+                        try:
+                            file_info['rmd5'] = _md5sum(file_info['remote'])
+                        except FileNotFoundError:
+                            pass
+
+                    self.send(send_user_name, ["CMD_RECV_PATH", task_uuid, all_file_info_list])
+
+                except Exception as err:
+                    self._log.log_info_format_err("Recv Path", "处理接收目录错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        sub_th = threading.Thread(target=sub)
+        sub_th.setDaemon(True)
+        sub_th.start()
+
     def _send_fun_file(self, client_name, data):
         try:
             sock = self._user_dict[client_name]["sock"]
@@ -1510,6 +1686,10 @@ class Client():
 
         self._recv_file_task_queue = queue.Queue()
 
+        self._recv_path_task_queue = queue.Queue()
+
+        self._send_path_task_dict = {}
+
         self._get_event_info_dict = {}
 
         self._recv_get_info_queue = queue.Queue()
@@ -1557,6 +1737,8 @@ class Client():
         self._send_file_server()
 
         self._recv_file_server()
+
+        self._recv_path_server()
 
     def conncet(self, server_name, ip, port, password="abc123"):
 
@@ -1774,6 +1956,13 @@ class Client():
                         # ["CMD_RECV_FILE", remote_file_path, source_file_path, show, compress, uuid] server_name
                         user_obj = getattr(self.user, server_name)
                         user_obj.send_file(recv_data[1], recv_data[2], show=recv_data[3], compress=recv_data[4], uuid=recv_data[5])
+                    elif cmd == "CMD_SRND_PATH":
+                        # ["CMD_SRND_PATH", all_file_info_list, remote_path, task_uuid]
+                        self._recv_path_task_queue.put((recv_data[1], recv_data[2], server_name, recv_data[3]))
+                    elif cmd == "CMD_RECV_PATH":
+                        # ["CMD_RECV_PATH", task_uuid, all_file_info_list]
+                        self._send_path_task_dict[recv_data[1]]['all_file_info_list'] = recv_data[2]
+                        self._send_path_task_dict[recv_data[1]]['event'].set()
                     else:
                         self._log.log_info_format_err("Format Err", "收到 {0} 错误格式数据: {1}".format(server_name, recv_data))
                 except Exception as err:
@@ -2258,6 +2447,111 @@ class Client():
         recv_file_server_th = threading.Thread(target=sub)
         recv_file_server_th.setDaemon(True)
         recv_file_server_th.start()
+
+    def _recv_path_server(self):
+        """ 接收目录文件服务线程 """
+        def sub():
+
+            def getAllFiles(folder):
+                """ 获取某个路径全文件 """
+                filepath_list = []
+                for root, folder_names, file_names in os.walk(folder):
+                    for file_name in file_names:
+                        file_path = os.path.join(root, file_name)
+                        filepath_list.append(file_path)
+                        # print(file_path)
+                return filepath_list
+
+            def del_emp_dir(path):
+                """ 删除空文件夹 """
+                # 这个函数对空文件夹下的空文件夹每次调用只能删除一个,需要多次调用
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+                for (root, dirs, files) in os.walk(path):
+                    for item in dirs:
+                        dir = os.path.join(root, item)
+                        try:
+                            os.rmdir(dir)  #os.rmdir() 方法用于删除指定路径的目录。仅当这文件夹是空的才可以, 否则, 抛出OSError。
+                            print("Remove empty folder: {0}".format(dir))
+                        except Exception:
+                            pass
+
+            def _md5sum(filename, blocksize=FILE_MD5_BLOCKSIZE):
+                hash = hashlib.md5()
+                with open(filename, "rb") as fb:
+                    while True:
+                        block = fb.read(blocksize)
+                        if not block:
+                            break
+                        hash.update(block)
+
+                return hash.hexdigest()
+
+            while True:
+                try:
+                    all_file_info_list, remote_path, send_user_name, task_uuid = self._recv_path_task_queue.get()
+                    # [{'source': '.\\.Room\\log.db',
+                    # 'smd5': 'dd42eea5d5d99ffb9fa8319e01967f10',
+                    # 'remote': 'H:\\path\\.Room\\log.db',
+                    # 'rmd5': ''},
+                    # {'source': '.\\新建 RTF 文档.rtf',
+                    # 'smd5': '8274425de767b30b2fff1124ab54abb5',
+                    # 'remote': 'H:\\path\\新建 RTF 文档.rtf',
+                    # 'rmd5': ''}]
+
+                    # 安全检测
+                    if remote_path in ('', '.', '\\', '/') or remote_path[:2] in ('c:' 'C:'):
+                        # 发送空
+                        self.send(send_user_name, ["CMD_RECV_PATH", task_uuid, []])
+
+                    # 删除多余文件
+                    all_send_file_path_list = []
+                    for file_info in all_file_info_list:
+                        # 获得绝对路径
+                        all_send_file_path_list.append(Path(file_info['remote']).absolute())
+
+                    for local_file_path in getAllFiles(remote_path):
+                        if Path(local_file_path).absolute() not in all_send_file_path_list:
+                            # 如果本地的这个文件不在列表, 就删除
+                            print("删除:", local_file_path)
+                            os.remove(local_file_path)
+
+                    # 删除空文件夹
+                    del_emp_dir(remote_path)
+
+                    # 计算md5
+                    for file_info in all_file_info_list:
+                        try:
+                            file_info['rmd5'] = _md5sum(file_info['remote'])
+                        except FileNotFoundError:
+                            pass
+
+                    self.send(send_user_name, ["CMD_RECV_PATH", task_uuid, all_file_info_list])
+
+                except Exception as err:
+                    self._log.log_info_format_err("Recv Path", "处理接收目录错误!")
+                    traceback.print_exc()
+                    print(err)
+
+        sub_th = threading.Thread(target=sub)
+        sub_th.setDaemon(True)
+        sub_th.start()
 
     def _send_fun_file(self, client_name, data):
         try:
