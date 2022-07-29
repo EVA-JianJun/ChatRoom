@@ -1,5 +1,6 @@
 import os
 import time
+import string
 import shutil
 import shelve
 import sqlite3
@@ -25,11 +26,22 @@ MAIL_ICO_PATH = os.path.join(IMAGE_PATH, 'icons8-mail-24.ico')
 CONFIG_ICO_PATH = os.path.join(IMAGE_PATH, 'icons8-mail-configuration-24.ico')
 # 设置图标
 SETTING_ICO_PATH = os.path.join(IMAGE_PATH, 'icons8_settings_24px_2.ico')
+# 警告图标
+WARNING_ICO_PATH = os.path.join(IMAGE_PATH, 'icons8-warning-24.ico')
 
 # 初始化文件
 data_path = os.path.join(ChatRoom.__file__.replace("__init__.py", ""), ".Room")
 if not os.path.exists(DATA_PATH):
     shutil.copytree(data_path, DATA_PATH)
+
+def TK_CENTER(root, width, height):
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = int(screen_width / 2 - width / 2)
+    y = int(screen_height / 2 - height / 2)
+    size = '{}x{}+{}+{}'.format(width, height, x, y)
+
+    return size
 
 class LogDB():
     def __init__(self):
@@ -66,7 +78,7 @@ class MyConfig():
                     # 是否发送邮件
                     "mail" : True,
                     # 该类型邮件标签
-                    "tag" : "Crimson",
+                    "tag" : "crimson",
                     # 超时(在这个时间前不发送邮件)
                     "deadline" : '1970-01-01 00:00:00',
                     # 备注
@@ -199,7 +211,7 @@ class RoomLog(ttk.Frame):
         def config_err():
             config_app = ttk.Toplevel(title="Config")
             config_app.iconbitmap(CONFIG_ICO_PATH)
-            config_app.geometry('1000x650')
+            config_app.geometry(TK_CENTER(config_app, 1000, 650))
 
             # 上方配置栏
             config_frame = ttk.Frame(config_app, bootstyle=SECONDARY)
@@ -372,8 +384,6 @@ class RoomLog(ttk.Frame):
             save_button = ttk.Button(button_frame, width=52, bootstyle=DARK, text="保存", command=save)
             save_button.pack(fill=BOTH, side=RIGHT)
 
-            config_app.mainloop()
-
         btn = ttk.Button(
             master=buttonbar,
             text='Config',
@@ -413,7 +423,7 @@ class RoomLog(ttk.Frame):
 
             show_mail_app = ttk.Toplevel(title="Mail Buffer")
             show_mail_app.iconbitmap(MAIL_ICO_PATH)
-            show_mail_app.geometry('1000x600')
+            show_mail_app.geometry(TK_CENTER(show_mail_app, 1000, 600))
 
             show_mail_label = ttk.Label(
                 master=show_mail_app,
@@ -421,8 +431,6 @@ class RoomLog(ttk.Frame):
                 font=ttk.font.Font(size=13),
             )
             show_mail_label.pack()
-
-            show_mail_app.mainloop()
 
         btn = ttk.Button(
             master=buttonbar,
@@ -445,13 +453,12 @@ class RoomLog(ttk.Frame):
         self.mail_switch_btn = btn
 
         ## settings
-        _func = lambda: Messagebox.ok(message='Changing settings')
         btn = ttk.Button(
             master=buttonbar,
             # text='Settings',
             image='settings',
             compound=LEFT,
-            command=_func,
+            command=self.func_setting,
         )
         btn.pack(side=RIGHT, ipadx=5, ipady=5, padx=0, pady=1)
 
@@ -523,6 +530,7 @@ class RoomLog(ttk.Frame):
                 self.my_log_treeview.delete(item)
             self.my_log_all_item_set = set()
             self.my_log_id = 1
+            self.func_insert_information("清理日志!")
 
         btn = ttk.Button(
             master=search_frm,
@@ -765,6 +773,169 @@ class RoomLog(ttk.Frame):
             # 取消计时
             self.reset_switch_mail_timer.cancel()
 
+    def func_messagebox(self, Name, LogId, LogType, InsertTime, LogInfo):
+        """ 显示一个警告窗口 """
+        # def s_len(info):
+        #     return len(info) + (len(info.encode('utf-8')) - len(info)) / 2
+
+        # 根据长度自动分段加上换行
+        LogInfoS = ""
+        len_n = 0
+        for s in LogInfo:
+            if s in string.printable:
+                len_n += 1
+            else:
+                len_n += 2
+
+            LogInfoS += s
+            if len_n % 34 == 0:
+                LogInfoS += '\n'
+
+        message_app = ttk.Toplevel(title="Warning")
+        message_app.attributes("-topmost", True)
+        message_app.iconbitmap(WARNING_ICO_PATH)
+        message_app.geometry(TK_CENTER(message_app, 260, 170))
+
+        up_frame = ttk.Frame(message_app, bootstyle=DANGER)
+        up_frame.pack(fill=BOTH, side=TOP)
+
+        down_frame = ttk.Frame(message_app, bootstyle=DARK)
+        down_frame.pack(fill=BOTH, side=TOP)
+
+        title = "{0} {1} {2} {3}".format(Name, LogId, LogType, InsertTime)
+        label1 = ttk.Label(up_frame, text=title, bootstyle="inverse-danger")
+        label1.pack()
+        label2 = ttk.Label(down_frame, text=LogInfoS, bootstyle="inverse-dark")
+        label2.pack()
+        label3 = ttk.Label(down_frame, text="\n\n\n\n\n\n\n\n\n\n", bootstyle="inverse-dark")
+        label3.pack()
+
+    def func_setting(self):
+        """ 系统设置界面 """
+
+        ip = "10.88.3.152"
+        port = "2428"
+        password = "Passable"
+        blacklist = "[]"
+        user_napw_info = "{}"
+
+        smtp_ip_1 = "smtp.qq.com"
+        smtp_port_1 = "465"
+        smtp_account_1 = "910377594@qq.com"
+        smtp_password_1 = "flskkokppclobbba"
+
+        smtp_ip_2 = "smtpdm.aliyun.com"
+        smtp_port_2 = "465"
+        smtp_account_2 = "myctplog@mail.jianjun.kim"
+        smtp_password_2 = "tMU3EqhEzehg8ig2"
+
+        admin_mail = "910667956@qq.com"
+
+        setting_app = ttk.Toplevel(title="Setting")
+        setting_app.iconbitmap(SETTING_ICO_PATH)
+        setting_app.geometry(TK_CENTER(setting_app, 700, 250))
+
+        # ========= Room ============
+        room_frame = ttk.Labelframe(setting_app, text='Room', padding=10)
+        room_frame.grid(row=0, column=0, rowspan=1, columnspan=2)
+
+        ip_label = ttk.Label(room_frame, text="ip: ")
+        ip_label.grid(row=0, column=0, rowspan=1, columnspan=1, pady=1)
+        ip_entry = ttk.Entry(room_frame, width=12)
+        ip_entry.insert(END, ip)
+        ip_entry.grid(row=0, column=1, rowspan=1, columnspan=1, pady=1)
+
+        port_label = ttk.Label(room_frame, text=" port: ")
+        port_label.grid(row=0, column=2, rowspan=1, columnspan=1, pady=1)
+        port_entry = ttk.Entry(room_frame, width=5)
+        port_entry.insert(END, port)
+        port_entry.grid(row=0, column=3, rowspan=1, columnspan=1, pady=1)
+
+        password_label = ttk.Label(room_frame, text=" password: ")
+        password_label.grid(row=0, column=4, rowspan=1, columnspan=1, pady=1)
+        password_entry = ttk.Entry(room_frame, width=12)
+        password_entry.insert(END, password)
+        password_entry.grid(row=0, column=5, rowspan=1, columnspan=1, pady=1)
+
+        blacklist_label = ttk.Label(room_frame, text="blacklist: ")
+        blacklist_label.grid(row=1, column=0, rowspan=1, columnspan=1, pady=1)
+        blacklist_entry = ttk.Entry(room_frame, width=50)
+        blacklist_entry.insert(END, blacklist)
+        blacklist_entry.grid(row=1, column=1, rowspan=1, columnspan=5, pady=1)
+
+        user_napw_info_label = ttk.Label(room_frame, text="UNF: ")
+        user_napw_info_label.grid(row=2, column=0, rowspan=1, columnspan=1, pady=1)
+        user_napw_info_entry = ttk.Entry(room_frame, width=50)
+        user_napw_info_entry.insert(END, user_napw_info)
+        user_napw_info_entry.grid(row=2, column=1, rowspan=1, columnspan=5, pady=1)
+
+        # ============== Admin =============
+        k_frame = ttk.Frame(setting_app, padding=10)
+        k_frame.grid(row=0, column=2, rowspan=1, columnspan=1)
+
+        admin_mail_label_1 = ttk.Label(k_frame, text="Admin Mail: ")
+        admin_mail_label_1.grid(row=0, column=0, rowspan=1, columnspan=2, pady=1)
+        admin_mail_entry_1 = ttk.Entry(k_frame, width=17)
+        admin_mail_entry_1.insert(END, admin_mail)
+        admin_mail_entry_1.grid(row=0, column=2, rowspan=1, columnspan=4, pady=1)
+
+        save_button = ttk.Button(k_frame, text='Save', width=11)
+        save_button.grid(row=1, column=0, rowspan=1, columnspan=3, pady=1)
+        save_button = ttk.Button(k_frame, text='Quit', width=11, command=lambda : setting_app.destroy())
+        save_button.grid(row=1, column=3, rowspan=1, columnspan=3, pady=1)
+
+        # ========= Mail ============
+        mail_frame = ttk.Labelframe(setting_app, text='Smtp Mail', padding=10)
+        mail_frame.grid(row=1, column=0, rowspan=1, columnspan=3)
+
+        smtp_ip_label_1 = ttk.Label(mail_frame, text="ip: ")
+        smtp_ip_label_1.grid(row=0, column=0, rowspan=1, columnspan=1, pady=1)
+        smtp_ip_entry_1 = ttk.Entry(mail_frame, width=17)
+        smtp_ip_entry_1.insert(END, smtp_ip_1)
+        smtp_ip_entry_1.grid(row=0, column=1, rowspan=1, columnspan=1, pady=1)
+
+        smtp_port_label_1 = ttk.Label(mail_frame, text=" port: ")
+        smtp_port_label_1.grid(row=0, column=2, rowspan=1, columnspan=1, pady=1)
+        smtp_port_entry_1 = ttk.Entry(mail_frame, width=4)
+        smtp_port_entry_1.insert(END, smtp_port_1)
+        smtp_port_entry_1.grid(row=0, column=3, rowspan=1, columnspan=1, pady=1)
+
+        smtp_account_label_1 = ttk.Label(mail_frame, text=" account: ")
+        smtp_account_label_1.grid(row=0, column=4, rowspan=1, columnspan=1, pady=1)
+        smtp_account_entry_1 = ttk.Entry(mail_frame, width=22)
+        smtp_account_entry_1.insert(END, smtp_account_1)
+        smtp_account_entry_1.grid(row=0, column=5, rowspan=1, columnspan=1, pady=1)
+
+        smtp_password_label_1 = ttk.Label(mail_frame, text=" password: ")
+        smtp_password_label_1.grid(row=0, column=6, rowspan=1, columnspan=1, pady=1)
+        smtp_password_entry_1 = ttk.Entry(mail_frame, width=17)
+        smtp_password_entry_1.insert(END, smtp_password_1)
+        smtp_password_entry_1.grid(row=0, column=7, rowspan=1, columnspan=1, pady=1)
+
+        smtp_ip_label_2 = ttk.Label(mail_frame, text="ip: ")
+        smtp_ip_label_2.grid(row=1, column=0, rowspan=1, columnspan=1, pady=1)
+        smtp_ip_entry_2 = ttk.Entry(mail_frame, width=17)
+        smtp_ip_entry_2.insert(END, smtp_ip_2)
+        smtp_ip_entry_2.grid(row=1, column=1, rowspan=1, columnspan=1, pady=1)
+
+        smtp_port_label_2 = ttk.Label(mail_frame, text=" port: ")
+        smtp_port_label_2.grid(row=1, column=2, rowspan=1, columnspan=1, pady=1)
+        smtp_port_entry_2 = ttk.Entry(mail_frame, width=4)
+        smtp_port_entry_2.insert(END, smtp_port_2)
+        smtp_port_entry_2.grid(row=1, column=3, rowspan=1, columnspan=1, pady=1)
+
+        smtp_account_label_2 = ttk.Label(mail_frame, text=" account: ")
+        smtp_account_label_2.grid(row=1, column=4, rowspan=1, columnspan=1, pady=1)
+        smtp_account_entry_2 = ttk.Entry(mail_frame, width=22)
+        smtp_account_entry_2.insert(END, smtp_account_2)
+        smtp_account_entry_2.grid(row=1, column=5, rowspan=1, columnspan=1, pady=1)
+
+        smtp_password_label_2 = ttk.Label(mail_frame, text=" password: ")
+        smtp_password_label_2.grid(row=1, column=6, rowspan=1, columnspan=1, pady=1)
+        smtp_password_entry_2 = ttk.Entry(mail_frame, width=17)
+        smtp_password_entry_2.insert(END, smtp_password_2)
+        smtp_password_entry_2.grid(row=1, column=7, rowspan=1, columnspan=1, pady=1)
+
     # =================== 系统服务 ===========================
     def auto_clena_log_server(self):
         """ 自动清理过旧的日志 """
@@ -969,6 +1140,8 @@ class RoomLog(ttk.Frame):
             finally:
                 self.my_mail_buffer_list_lock.release()
 
+            self.func_messagebox(Name, LogId, LogType, InsertTime, LogInfo)
+
         # 数据库保存
         self.my_db_object.insert_log(Name, LogId, LogType, InsertTime, LogInfo)
 
@@ -1116,28 +1289,25 @@ class CollapsingFrame(ttk.Frame):
             child.grid()
             child.btn.configure(image=self.images[0])
 
-if __name__ == '__main__':
+class RoomApp():
 
-    """ TEST """
-    # app = ttk.Window("ROOM LOG")
-    # app.geometry('1300x705')
-    # RoomLog(app)
-    # app.mainloop()
+    def __init__(self):
+        self.run()
 
-    """ Thread TEST """
-    import threading
-    L = []
-    def sub(L):
+    def gui_th(self):
         app = ttk.Window("ROOM LOG")
-        app.geometry('1300x800')
+        app.geometry(TK_CENTER(app, 1300, 800))
         app.iconbitmap(MAIN_ICO_PATH)
-        room_log = RoomLog(app)
-        L.append(room_log)
+        self.room_log = RoomLog(app)
         app.mainloop()
 
-    th = threading.Thread(target=sub, args=(L, ))
-    th.setDaemon(True)
-    th.start()
+    def run(self):
+        th = threading.Thread(target=self.gui_th)
+        th.setDaemon(True)
+        th.start()
 
+if __name__ == '__main__':
+
+    room_app = RoomApp()
     time.sleep(1)
-    gui = L[0]
+    gui = room_app.room_log
