@@ -4,10 +4,13 @@ import string
 import shutil
 import shelve
 import sqlite3
+import traceback
 import winsound
+import threading
 
 import ChatRoom
-import threading
+from ChatRoom import Room
+from ChatRoom.net import get_host_ip
 from datetime import datetime, timedelta
 
 import ttkbootstrap as ttk
@@ -17,6 +20,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledText
 
 DATA_PATH = ".Room"
+LOG_FILE_PATH = os.path.join(DATA_PATH, "information_log.log")
 IMAGE_PATH = os.path.join(DATA_PATH, "image")
 # 主图标
 MAIN_ICO_PATH = os.path.join(IMAGE_PATH, 'icons8-monitor-32.ico')
@@ -107,6 +111,26 @@ class MyConfig():
                 }
             })
 
+            self.set_config("system_setting", {
+                "ip" : get_host_ip(),
+                "port" : 2428,
+                "password" : "Passable",
+                "blacklist" : [],
+                "user_napw_info" : {},
+
+                "smtp_ip_1" : "",
+                "smtp_port_1" : "",
+                "smtp_account_1" : "",
+                "smtp_password_1" : "",
+
+                "smtp_ip_2" : "",
+                "smtp_port_2" : "",
+                "smtp_account_2" : "",
+                "smtp_password_2" : "",
+
+                "admin_mail" : "",
+            })
+
     def get_config(self, name, default=None):
         with shelve.open(self.my_config_file_path) as sh:
             try:
@@ -145,6 +169,10 @@ class RoomLog(ttk.Frame):
         self.my_mail_buffer_list_lock = threading.Lock()
         # 邮件类型配置字典
         self.my_mail_type_config = self.my_config.get_config("my_mail_type_config")
+        # 系统设置
+        self.system_setting = self.my_config.get_config("system_setting")
+        # 信息栏插入锁
+        self.my_information_lock = threading.Lock()
 
         # 初始化组件
         self.func_init_theme()
@@ -154,17 +182,18 @@ class RoomLog(ttk.Frame):
         self.func_init_right_frame()
 
         # 初始化自己节点
-        self.func_update_user("Room")
 
-        # TEST 测试用户
-        self.func_update_user("Andy")
-        self.func_update_user("Andy2")
-        self.func_update_user("Andy3")
-        self.func_update_user("Andy4")
-        self.func_update_user("Andy5")
-        self.func_update_user("Andy6")
-        self.func_update_user("Andy7")
-        self.func_update_user("Andy8")
+        default_room_user_info_dict = {
+            'user_name' : "Room",
+            'user_ip' : get_host_ip(),
+            'user_sys_time': '1970-01-01 00:00:00',
+            'user_net' : 'Net: ↓: 0 Kb/s ↑: 0 Kb/s',
+            'cpu_percent' : 0,
+            'mem_percent' : 0,
+            'disk_percent' : 0,
+            'python_num' : "python 5",
+        }
+        self.func_update_user(default_room_user_info_dict)
 
         # 启动服务
         self.auto_clena_log_server()
@@ -369,7 +398,7 @@ class RoomLog(ttk.Frame):
                 # 保存配置
                 self.my_config.set_config("my_mail_type_config", self.my_mail_type_config)
 
-                self.func_insert_information("日志配置保存成功!当前配置:")
+                self.func_insert_information("日志配置保存成功!当前配置:", "yellowgreen")
                 for name, config_dict in self.my_mail_type_config.items():
                     self.func_insert_information("{0:<12} 备注: {4:<12} 邮件: {1:<6} 标签: {2:<10} 超时: {3}".format(
                         name,
@@ -399,7 +428,7 @@ class RoomLog(ttk.Frame):
             try:
                 mail_len = len(self.my_mail_buffer_list)
                 self.my_mail_buffer_list = []
-                self.func_insert_information("清空了 {0} 条邮件信息!".format(mail_len))
+                self.func_insert_information("清空了 {0} 条邮件信息!".format(mail_len), "gold")
             finally:
                 self.my_mail_buffer_list_lock.release()
 
@@ -530,7 +559,7 @@ class RoomLog(ttk.Frame):
                 self.my_log_treeview.delete(item)
             self.my_log_all_item_set = set()
             self.my_log_id = 1
-            self.func_insert_information("清理日志!")
+            self.func_insert_information("清理日志!", "gold")
 
         btn = ttk.Button(
             master=search_frm,
@@ -731,6 +760,10 @@ class RoomLog(ttk.Frame):
         self.setvar('scroll-message', _value)
         self.my_info_text = ScrolledText(output_container, height=10)
         self.my_info_text.pack(fill=BOTH, expand=YES)
+
+        for tag_name in color_dict:
+            self.my_info_text.tag_config(tag_name, foreground=tag_name)
+
         scroll_cf.scrolledtext_add(
             output_container,
             textvariable='scroll-message',
@@ -744,7 +777,7 @@ class RoomLog(ttk.Frame):
             # 切换回正常
             self.my_mail_mode = 0
             self.mail_switch_btn.config(bootstyle=PRIMARY, image='mail-ok')
-            self.func_insert_information("邮件功能暂停结束, 邮件功能恢复正常!")
+            self.func_insert_information("邮件功能暂停结束, 邮件功能恢复正常!", "yellowgreen")
 
         if self.my_mail_mode == 0:
             # 切换到暂停 (最多暂停90s)
@@ -753,7 +786,7 @@ class RoomLog(ttk.Frame):
             # 90s
             sleep_time = 90
             reset_date = datetime.now() + timedelta(seconds=sleep_time)
-            self.func_insert_information("邮件功能暂停! {0} 恢复正常!".format(reset_date.strftime('%Y-%m-%d %H:%M:%S')))
+            self.func_insert_information("邮件功能暂停! {0} 恢复正常!".format(reset_date.strftime('%Y-%m-%d %H:%M:%S')), "gold")
             # 启动复原邮件的计时线程
             self.reset_switch_mail_timer = threading.Timer(sleep_time, reset_switch_mail)
             self.reset_switch_mail_timer.setDaemon(True)
@@ -762,14 +795,14 @@ class RoomLog(ttk.Frame):
             # 切换到停止
             self.my_mail_mode = 2
             self.mail_switch_btn.config(bootstyle=DANGER, image='mail-no')
-            self.func_insert_information("邮件功能停止!")
+            self.func_insert_information("邮件功能停止!", "red")
             # 取消计时
             self.reset_switch_mail_timer.cancel()
         else:
             # 切换回正常
             self.my_mail_mode = 0
             self.mail_switch_btn.config(bootstyle=PRIMARY, image='mail-ok')
-            self.func_insert_information("邮件功能正常!")
+            self.func_insert_information("邮件功能正常!", "yellowgreen")
             # 取消计时
             self.reset_switch_mail_timer.cancel()
 
@@ -812,24 +845,53 @@ class RoomLog(ttk.Frame):
 
     def func_setting(self):
         """ 系统设置界面 """
+        def save_setting():
+            try:
+                self.system_setting["ip"] = ip_entry.get()
+                port = port_entry.get()
+                if port:
+                    self.system_setting["port"] = int(port)
+                self.system_setting["password"] = password_entry.get()
+                self.system_setting["blacklist"] = eval(blacklist_entry.get())
+                self.system_setting["user_napw_info"] = eval(user_napw_info_entry.get())
 
-        ip = "10.88.3.152"
-        port = "2428"
-        password = "Passable"
-        blacklist = "[]"
-        user_napw_info = "{}"
+                self.system_setting["smtp_ip_1"] = smtp_ip_entry_1.get()
+                smtp_port_1 = smtp_port_entry_1.get()
+                if smtp_port_1:
+                    self.system_setting["smtp_port_1"] = int(smtp_port_1)
+                self.system_setting["smtp_account_1"] = smtp_account_entry_1.get()
+                self.system_setting["smtp_password_1"] = smtp_password_entry_1.get()
 
-        smtp_ip_1 = "smtp.qq.com"
-        smtp_port_1 = "465"
-        smtp_account_1 = "910377594@qq.com"
-        smtp_password_1 = "flskkokppclobbba"
+                self.system_setting["smtp_ip_2"] = smtp_ip_entry_2.get()
+                smtp_port_2 = smtp_port_entry_2.get()
+                if smtp_port_2:
+                    self.system_setting["smtp_port_2"] = int(smtp_port_2)
+                self.system_setting["smtp_account_2"] = smtp_account_entry_2.get()
+                self.system_setting["smtp_password_2"] = smtp_password_entry_2.get()
 
-        smtp_ip_2 = "smtpdm.aliyun.com"
-        smtp_port_2 = "465"
-        smtp_account_2 = "myctplog@mail.jianjun.kim"
-        smtp_password_2 = "tMU3EqhEzehg8ig2"
+                self.system_setting["admin_mail"] = admin_mail_entry_1.get()
+            except Exception:
+                self.func_insert_information("设置保存失败! 请检查数据格式!", "red")
+            else:
+                self.func_insert_information("设置保存成功!", "yellowgreen")
 
-        admin_mail = "910667956@qq.com"
+        ip = self.system_setting["ip"]
+        port = str(self.system_setting["port"])
+        password = self.system_setting["password"]
+        blacklist = str(self.system_setting["blacklist"])
+        user_napw_info = str(self.system_setting["user_napw_info"])
+
+        smtp_ip_1 = self.system_setting["smtp_ip_1"]
+        smtp_port_1 = str(self.system_setting["smtp_port_1"])
+        smtp_account_1 = self.system_setting["smtp_account_1"]
+        smtp_password_1 = self.system_setting["smtp_password_1"]
+
+        smtp_ip_2 = self.system_setting["smtp_ip_2"]
+        smtp_port_2 = str(self.system_setting["smtp_port_2"])
+        smtp_account_2 = self.system_setting["smtp_account_2"]
+        smtp_password_2 = self.system_setting["smtp_password_2"]
+
+        admin_mail = self.system_setting["admin_mail"]
 
         setting_app = ttk.Toplevel(title="Setting")
         setting_app.iconbitmap(SETTING_ICO_PATH)
@@ -879,7 +941,7 @@ class RoomLog(ttk.Frame):
         admin_mail_entry_1.insert(END, admin_mail)
         admin_mail_entry_1.grid(row=0, column=2, rowspan=1, columnspan=4, pady=1)
 
-        save_button = ttk.Button(k_frame, text='Save', width=11)
+        save_button = ttk.Button(k_frame, text='Save', width=11, command=save_setting)
         save_button.grid(row=1, column=0, rowspan=1, columnspan=3, pady=1)
         save_button = ttk.Button(k_frame, text='Quit', width=11, command=lambda : setting_app.destroy())
         save_button.grid(row=1, column=3, rowspan=1, columnspan=3, pady=1)
@@ -944,7 +1006,7 @@ class RoomLog(ttk.Frame):
             while True:
                 # 每小时清理一次
                 time.sleep(3600)
-                self.func_insert_information("自动清理过旧日志!")
+                self.func_insert_information("自动清理过旧日志!", "gold")
                 delete_date = datetime.now() - timedelta(days=3)
                 delete_num = 0
                 for item in self.my_log_treeview.get_children():
@@ -962,23 +1024,23 @@ class RoomLog(ttk.Frame):
                         except KeyError:
                             pass
                         delete_num += 1
-                self.func_insert_information("清除过旧日志 {0}!".format(delete_num))
+                self.func_insert_information("清除过旧日志 {0}!".format(delete_num), "gold")
 
         server_th = threading.Thread(target=sub)
         server_th.setDaemon(True)
         server_th.start()
 
     # =================== 用户函数 ===========================
-    def func_update_user(self, user_name):
+    def func_update_user(self, user_info_dict):
         """ 初始化或更新用户信息 """
-        user_name = user_name
-        user_ip = "10.88.3.152"
-        user_sys_time = 'Time: {0}'.format(time.strftime('%Y-%m-%d %H:%M:%S'))
-        user_net = 'Net: ↓: 5.48 Kb/s ↑: 0.90 Kb/s'
-        cpu_percent = 17
-        mem_percent = 41
-        disk_percent = 59
-        python_num = "python 5"
+        user_name = user_info_dict["user_name"]
+        user_ip = user_info_dict["user_ip"]
+        user_sys_time = user_info_dict["user_sys_time"]
+        user_net = user_info_dict["user_net"]
+        cpu_percent = user_info_dict["cpu_percent"]
+        mem_percent = user_info_dict["mem_percent"]
+        disk_percent = user_info_dict["disk_percent"]
+        python_num = user_info_dict["python_num"]
 
         try:
             self.my_user_frame_dict[user_name]
@@ -995,6 +1057,8 @@ class RoomLog(ttk.Frame):
             child_list = bus_cf.add(
                 child=bus_frm,
                 title='{0} {1}'.format(user_name, user_ip),
+                my_textvariable='{0}-user-title'.format(user_name),
+                set_textvariable='{0} {1}'.format(user_name, user_ip),
                 # User控件样式
                 bootstyle=SUCCESS)
             # 保存子控件
@@ -1062,6 +1126,8 @@ class RoomLog(ttk.Frame):
         else:
             # 刷新样式
             self.func_user_online_bootstyle(user_name)
+            # 更新标题
+            self.setvar("{0}-user-title".format(user_name), '{0} {1}'.format(user_name, user_ip))
             # 更新时间
             self.setvar("{0}-time".format(user_name), user_sys_time)
             # 更新网络
@@ -1091,18 +1157,44 @@ class RoomLog(ttk.Frame):
         header.configure(bootstyle=(SUCCESS, INVERSE))
         btn.configure(bootstyle=SUCCESS)
 
-    def func_insert_information(self, info):
+    def func_insert_information(self, info, tag=""):
         """ 向信息栏插入一行信息 """
-        self.my_info_text.insert(END, "{0}: {1}\n".format(time.strftime('%Y-%m-%d %H:%M:%S'), info))
-        # 让滚动条始终滚动到最底部
-        self.my_info_text.text.yview_moveto(1)
+        self.my_information_lock.acquire()
+        try:
+            if tag:
+                self.my_info_text.insert(END, "{0}: ".format(time.strftime('%Y-%m-%d %H:%M:%S')))
+                self.my_info_text.insert(END, "{0}\n".format(info), tag)
+            else:
+                self.my_info_text.insert(END, "{0}: {1}\n".format(time.strftime('%Y-%m-%d %H:%M:%S'), info))
+
+            # 让滚动条始终滚动到最底部
+            self.my_info_text.text.yview_moveto(1)
+            with open(LOG_FILE_PATH, "a") as fa:
+                fa.write(info + '\n')
+        finally:
+            self.my_information_lock.release()
+
+    def func_room_log_information(self, title, info, log_tag=""):
+        """ Room日志插入消息 """
+        self.my_information_lock.acquire()
+        try:
+            self.my_info_text.insert(END, "{0} | ".format(time.strftime('%Y-%m-%d %H:%M:%S')))
+            self.my_info_text.insert(END, "{0:^30}".format(title), log_tag)
+            self.my_info_text.insert(END, " | {0}\n".format(info))
+            self.my_info_text.text.yview_moveto(1)
+        finally:
+            self.my_information_lock.release()
 
     def func_clear_insert_information(self):
         """ 清空信息栏 """
-        self.my_info_text.delete(1.0, 'end')
-        self.func_insert_information("clean all!")
+        self.my_information_lock.acquire()
+        try:
+            self.my_info_text.delete(1.0, 'end')
+        finally:
+            self.my_information_lock.release()
+        self.func_insert_information("clean all!", "yellowgreen")
 
-    def func_insert_log(self, Name, LogId, LogType, LogInfo, InsertTime=None, tag=None):
+    def func_insert_log(self, Name, LogId, LogType, LogInfo, InsertTime=None, tag=None, force_mail=False):
         """ 插入一条日志信息 """
         if not InsertTime:
             InsertTime = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1131,16 +1223,17 @@ class RoomLog(ttk.Frame):
             self.my_log_treeview.insert("", 0, text="line1", values=(ID, Name, LogId, LogType, InsertTime, LogInfo))
         self.my_log_id += 1
 
-        if mail_flag and InsertTime > deadline_flag:
+        if (mail_flag and InsertTime > deadline_flag) or (force_mail):
             # 允许发送邮件且日志时间在deadline_flag之后才进入邮件日志缓冲区
-            winsound.PlaySound(self.my_err_audio_file, 1)
             self.my_mail_buffer_list_lock.acquire()
             try:
                 self.my_mail_buffer_list.append((ID, Name, LogId, LogType, InsertTime, LogInfo))
             finally:
                 self.my_mail_buffer_list_lock.release()
 
-            self.func_messagebox(Name, LogId, LogType, InsertTime, LogInfo)
+            if not self.my_mail_mode:
+                self.func_messagebox(Name, LogId, LogType, InsertTime, LogInfo)
+                winsound.PlaySound(self.my_err_audio_file, 1)
 
         # 数据库保存
         self.my_db_object.insert_log(Name, LogId, LogType, InsertTime, LogInfo)
@@ -1160,7 +1253,7 @@ class CollapsingFrame(ttk.Frame):
             ttk.PhotoImage(file=os.path.join(IMAGE_PATH, 'icons8-clean-24px.png')),
         ]
 
-    def add(self, child, title="", bootstyle=PRIMARY, **kwargs):
+    def add(self, child, title="", bootstyle=PRIMARY, my_textvariable="", set_textvariable="",**kwargs):
         """Add a child to the collapsible frame
 
         Parameters:
@@ -1185,11 +1278,20 @@ class CollapsingFrame(ttk.Frame):
         frm.grid(row=self.cumulative_rows, column=0, sticky=EW)
 
         # header title
-        header = ttk.Label(
-            master=frm,
-            text=title,
-            bootstyle=(style_color, INVERSE)
-        )
+        if my_textvariable:
+            header = ttk.Label(
+                master=frm,
+                text=title,
+                textvariable=my_textvariable,
+                bootstyle=(style_color, INVERSE)
+            )
+            self.setvar(my_textvariable, set_textvariable)
+        else:
+            header = ttk.Label(
+                master=frm,
+                text=title,
+                bootstyle=(style_color, INVERSE)
+            )
         if kwargs.get('textvariable'):
             header.configure(textvariable=kwargs.get('textvariable'))
         header.pack(side=LEFT, fill=BOTH, padx=10)
@@ -1292,22 +1394,194 @@ class CollapsingFrame(ttk.Frame):
 class RoomApp():
 
     def __init__(self):
-        self.run()
+        """ 初始化 """
+        self.user_old_sys_time_dict = {}
+
+        self.user_offline_err_times_dict = {}
+
+        self.user_mem_err_times_dict = {}
+
+        self.user_disk_err_time_dict = {}
+
+        # ========= Run =========
+        self.run_gui()
+        while True:
+            time.sleep(1)
+            try:
+                self.gui
+            except AttributeError:
+                pass
+            else:
+                break
+        self.run_room()
+
+        self.update_user_info_server()
 
     def gui_th(self):
         app = ttk.Window("ROOM LOG")
         app.geometry(TK_CENTER(app, 1300, 800))
         app.iconbitmap(MAIN_ICO_PATH)
-        self.room_log = RoomLog(app)
+        self.gui = RoomLog(app)
         app.mainloop()
 
-    def run(self):
+    def run_gui(self):
+        """ 运行gui """
         th = threading.Thread(target=self.gui_th)
         th.setDaemon(True)
         th.start()
+
+    def run_room(self):
+        """ 运行room """
+        # 获取配置
+        ip = self.gui.system_setting['ip']
+        port = self.gui.system_setting['port']
+        password = self.gui.system_setting['password']
+        user_napw_info = self.gui.system_setting['user_napw_info']
+        blacklist = self.gui.system_setting['blacklist']
+
+        self.gui.func_insert_information("Room Ip: {0} Room Port: {1}".format(ip, port), "slateblue")
+        self.room = ChatRoom.Room(
+            ip=ip,
+            port=port,
+            password=password,
+            user_napw_info=user_napw_info,
+            blacklist=blacklist,
+            gui_log_information=self.gui.func_room_log_information,
+        )
+
+    def update_user_info_server(self):
+        """ 用户信息监控更新服务 """
+        def sub():
+            while True:
+                try:
+                    # 更新room
+                    user_info_dict = {}
+                    user_info_dict['user_name'] = "Room"
+                    user_info_dict['user_ip'] = get_host_ip()
+                    user = getattr(self.room.user, "myself")
+                    try:
+                        user.status.server_time
+                    except AttributeError:
+                        time.sleep(10)
+                        continue
+                    user_info_dict['user_sys_time'] = user.status.server_time[0]
+                    self.user_old_sys_time_dict["Room"] = user_info_dict['user_sys_time']
+                    user_info_dict['user_net'] = "Net: ↓: {0} ↑: {1}".format(user.status.network[0], user.status.network[1])
+                    user_info_dict['cpu_percent'] = float(user.status.cpu_rate.replace("%",""))
+                    user_info_dict['mem_percent'] = float(user.status.memory[0].replace("%",""))
+
+                    try:
+                        # windows
+                        user_info_dict['disk_percent'] = user.status.disk["C:\\"]['percent']
+                    except KeyError:
+                        # lazy
+                        user_info_dict['disk_percent'] = 0
+
+                    user_info_dict['python_num'] = user.status.process_status[1]
+
+                    self.gui.func_update_user(user_info_dict)
+
+                    if user_info_dict['mem_percent'] >= 85:
+                        try:
+                            self.user_mem_err_times_dict["Room"]
+                        except KeyError:
+                            self.user_mem_err_times_dict["Room"] = 0
+                        self.user_mem_err_times_dict["Room"] += 1
+                        if self.user_mem_err_times_dict["Room"] <= 2:
+                            self.gui.func_insert_log("Room", "00000", "ERR", "内存使用率过高!", tag="crimson", force_mail=True)
+                    else:
+                        self.user_mem_err_times_dict["Room"] = 0
+
+
+                    if user_info_dict['disk_percent'] >= 85:
+                        try:
+                            self.user_disk_err_time_dict["Room"]
+                        except KeyError:
+                            self.user_disk_err_time_dict["Room"] = 0
+                        self.user_disk_err_time_dict["Room"] += 1
+                        if self.user_disk_err_time_dict["Room"] <= 2:
+                            self.gui.func_insert_log("Room", "00000", "ERR", "硬盘使用率过高!", tag="crimson", force_mail=True)
+                    else:
+                        self.user_disk_err_time_dict["Room"] = 0
+
+                    # 其他user
+                    for user_name in self.room.server.get_user():
+                        user_info_dict = {}
+                        user_info_dict['user_name'] = user_name
+                        user_info_dict['user_ip'] = self.room.server.user_addr_dict[user_name][0]
+                        user = getattr(self.room.user, user_name)
+                        try:
+                            user.status.server_time
+                        except AttributeError:
+                            time.sleep(10)
+                            continue
+                        user_info_dict['user_sys_time'] = user.status.server_time[0]
+                        self.user_old_sys_time_dict[user_name] = user_info_dict['user_sys_time']
+                        user_info_dict['user_net'] = "Net: ↓: {0} ↑: {1}".format(user.status.network[0], user.status.network[1])
+                        user_info_dict['cpu_percent'] = float(user.status.cpu_rate.replace("%",""))
+                        user_info_dict['mem_percent'] = float(user.status.memory[0].replace("%",""))
+
+                        try:
+                            # windows
+                            user_info_dict['disk_percent'] = user.status.disk["C:\\"]['percent']
+                        except KeyError:
+                            # lazy
+                            user_info_dict['disk_percent'] = 0
+
+                        user_info_dict['python_num'] = user.status.process_status[1]
+
+                        self.gui.func_update_user(user_info_dict)
+
+                        if user_info_dict['mem_percent'] >= 85:
+                            try:
+                                self.user_mem_err_times_dict[user_name]
+                            except KeyError:
+                                self.user_mem_err_times_dict[user_name] = 0
+                            self.user_mem_err_times_dict[user_name] += 1
+                            if self.user_mem_err_times_dict[user_name] <= 2:
+                                self.gui.func_insert_log(user_name, "00000", "ERR", "内存使用率过高!", tag="crimson", force_mail=True)
+                        else:
+                            self.user_mem_err_times_dict[user_name] = 0
+
+                        if user_info_dict['disk_percent'] >= 85:
+                            try:
+                                self.user_disk_err_time_dict[user_name]
+                            except KeyError:
+                                self.user_disk_err_time_dict[user_name] = 0
+                            self.user_disk_err_time_dict[user_name] += 1
+                            if self.user_disk_err_time_dict[user_name] <= 2:
+                                self.gui.func_insert_log(user_name, "00000", "ERR", "硬盘使用率过高!", tag="crimson", force_mail=True)
+                        else:
+                            self.user_disk_err_time_dict[user_name] = 0
+
+                    # 检查用户断线
+                    now_date_str = (datetime.now() - timedelta(seconds=90)).strftime('%Y-%m-%d %H:%M:%S')
+                    for user_name, user_date in self.user_old_sys_time_dict.items():
+                        if now_date_str > user_date:
+                            try:
+                                self.user_offline_err_times_dict[user_name]
+                            except KeyError:
+                                self.user_offline_err_times_dict[user_name] = 0
+                            self.user_offline_err_times_dict[user_name] += 1
+                            if self.user_offline_err_times_dict[user_name] <= 2:
+                                self.gui.func_insert_log(user_name, "00000", "ERR", "用户离线!", tag="crimson", force_mail=True)
+                                self.gui.func_user_offline_bootstyle(user_name)
+                        else:
+                            self.user_offline_err_times_dict[user_name] = 0
+
+                    time.sleep(10)
+                except Exception as err:
+                    self.gui.func_insert_information("更新用户信息失败!", "crimson")
+                    traceback.print_exc(0)
+                    print(err)
+                    time.sleep(10)
+
+        update_user_info_th = threading.Thread(target=sub)
+        update_user_info_th.setDaemon(True)
+        update_user_info_th.start()
 
 if __name__ == '__main__':
 
     room_app = RoomApp()
     time.sleep(1)
-    gui = room_app.room_log
+    gui = room_app.gui

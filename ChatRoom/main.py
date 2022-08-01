@@ -17,7 +17,7 @@ from ChatRoom.net import Server, Client
 
 class Room():
 
-    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True):
+    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True, gui_log_information=None):
         """
         文档:
             创建一个聊天室
@@ -61,9 +61,9 @@ class Room():
         self.blacklist = blacklist
         self.encryption = encryption
 
-        self._log = Log(log)
+        self._log = Log(log, gui_log_information)
 
-        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption)
+        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption, gui_log_information=gui_log_information)
 
         self.server._register_disconnect_user_fun(self._disconnect_callback)
 

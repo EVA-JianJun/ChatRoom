@@ -608,7 +608,7 @@ class Node():
 
 class Server():
 
-    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None, encryption=True):
+    def __init__(self, ip, port, password="abc123", log=None, user_napw_info=None, blacklist=None, encryption=True, gui_log_information=None):
         """
         文档:
             建立一个服务端
@@ -687,7 +687,7 @@ class Server():
 
         self._get_callback_func_dict = {}
 
-        self._log = Log(log)
+        self._log = Log(log, gui_log_information)
 
         self._encrypt = encrypt()
 
@@ -700,6 +700,8 @@ class Server():
         self.ip_err_times_dict = {}
 
         self.is_encryption_dict = {}
+
+        self.user_addr_dict = {}
 
         self._connect_timeout_sock_set = set()
 
@@ -815,6 +817,8 @@ class Server():
         self._connect_end()
 
         self._connect_timeout_sock_set.remove(sock)
+
+        self.user_addr_dict[client_name] = addr
 
         while True:
             try:
@@ -1698,6 +1702,8 @@ class Client():
 
         self.is_encryption_dict = {}
 
+        self.user_addr_dict = {}
+
         self._connect_timeout_sock_set = set()
 
         self.user = User()
@@ -1808,6 +1814,7 @@ class Client():
             print(err)
 
         self._connect_timeout_sock_set.remove(sock)
+        self.user_addr_dict[server_name] = (ip, port)
 
     def _auto_reconnect_server(self):
 
