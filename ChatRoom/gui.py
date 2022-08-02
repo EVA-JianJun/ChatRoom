@@ -3,7 +3,9 @@ import time
 import string
 import shutil
 import shelve
+import random
 import sqlite3
+import yagmail
 import traceback
 import winsound
 import threading
@@ -15,7 +17,7 @@ from datetime import datetime, timedelta
 
 import ttkbootstrap as ttk
 from ttkbootstrap.style import Bootstyle
-from ttkbootstrap.dialogs import Messagebox
+# from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledText
 
@@ -142,6 +144,86 @@ class MyConfig():
         with shelve.open(self.my_config_file_path) as sh:
             sh[name] = value
 
+class MyMail():
+
+    def __init__(self, gui):
+
+        self.gui = gui
+
+        self.mail_server_list = []
+
+        # 检查参数
+        err_flag = False
+        if not self.gui.system_setting['admin_mail']:
+            err_flag = True
+            self.gui.func_insert_information("未设置管理员邮箱,邮件功能关闭!")
+
+        if not self.gui.system_setting['smtp_ip_1'] or not self.gui.system_setting['smtp_ip_2']:
+            err_flag = True
+            self.gui.func_insert_information("未设置SMTP,邮件功能关闭!")
+
+        if not err_flag:
+            if self.gui.system_setting['smtp_ip_1']:
+                yag = yagmail.SMTP(
+                    user=self.gui.system_setting['smtp_account_1'],
+                    password=self.gui.system_setting['smtp_password_1'],
+                    host=self.gui.system_setting['smtp_ip_1'],
+                    port=self.gui.system_setting['smtp_port_1'],
+                )
+                self.mail_server_list.append(yag)
+
+            if self.gui.system_setting['smtp_ip_2']:
+                yag = yagmail.SMTP(
+                    user=self.gui.system_setting['smtp_account_2'],
+                    password=self.gui.system_setting['smtp_password_2'],
+                    host=self.gui.system_setting['smtp_ip_2'],
+                    port=self.gui.system_setting['smtp_port_2'],
+                )
+                self.mail_server_list.append(yag)
+
+            self.mail_server()
+
+    def mail_server(self):
+        """ 邮件通知服务 """
+        def sub():
+            self.gui.func_insert_information("邮件服务启动!")
+            while True:
+                try:
+                    if self.gui.my_mail_mode:
+                        time.sleep(30)
+                        continue
+
+                    if self.gui.my_mail_buffer_list:
+                        yag = random.choice(self.mail_server_list)
+                        self.gui.my_mail_buffer_list_lock.acquire()
+                        try:
+                            mail_info = ""
+                            for log in self.gui.my_mail_buffer_list:
+                                mail_info += "{0} {1} {2} {3} {4} \n{5}\n".format(
+                                    *log
+                                )
+
+                            send_result = yag.send(
+                                to=self.gui.system_setting['admin_mail'],
+                                subject='Room Log',
+                                contents=mail_info,
+                            )
+
+                            if send_result == {}:
+                                self.gui.my_mail_buffer_list = []
+                        finally:
+                            self.gui.my_mail_buffer_list_lock.release()
+                except Exception as err:
+                    traceback.print_exc()
+                    print(err)
+                    self.gui.func_insert_information("发送邮件通知失败!", "crimson")
+                finally:
+                    time.sleep(30)
+
+        mail_server_th = threading.Thread(target=sub)
+        mail_server_th.setDaemon(True)
+        mail_server_th.start()
+
 class RoomLog(ttk.Frame):
 
     def __init__(self, *args, **kwargs):
@@ -239,6 +321,7 @@ class RoomLog(ttk.Frame):
         ## 邮件和错误配置
         def config_err():
             config_app = ttk.Toplevel(title="Config")
+            config_app.attributes("-topmost", True)
             config_app.iconbitmap(CONFIG_ICO_PATH)
             config_app.geometry(TK_CENTER(config_app, 1000, 650))
 
@@ -446,11 +529,12 @@ class RoomLog(ttk.Frame):
             if self.my_mail_buffer_list:
                 message = ""
                 for log_list in self.my_mail_buffer_list:
-                    message += "{0}\n".format(log_list)
+                    message += "{0} {1} {2} {3} {4} {5}\n".format(*log_list)
             else:
                 message = "mail buffer is clean."
 
             show_mail_app = ttk.Toplevel(title="Mail Buffer")
+            show_mail_app.attributes("-topmost", True)
             show_mail_app.iconbitmap(MAIL_ICO_PATH)
             show_mail_app.geometry(TK_CENTER(show_mail_app, 1000, 600))
 
@@ -870,10 +954,13 @@ class RoomLog(ttk.Frame):
                 self.system_setting["smtp_password_2"] = smtp_password_entry_2.get()
 
                 self.system_setting["admin_mail"] = admin_mail_entry_1.get()
+
+                self.my_config.set_config("system_setting", self.system_setting)
+
             except Exception:
                 self.func_insert_information("设置保存失败! 请检查数据格式!", "red")
             else:
-                self.func_insert_information("设置保存成功!", "yellowgreen")
+                self.func_insert_information("设置保存成功!重启后生效!", "yellowgreen")
 
         ip = self.system_setting["ip"]
         port = str(self.system_setting["port"])
@@ -894,6 +981,7 @@ class RoomLog(ttk.Frame):
         admin_mail = self.system_setting["admin_mail"]
 
         setting_app = ttk.Toplevel(title="Setting")
+        setting_app.attributes("-topmost", True)
         setting_app.iconbitmap(SETTING_ICO_PATH)
         setting_app.geometry(TK_CENTER(setting_app, 700, 250))
 
@@ -1417,8 +1505,11 @@ class RoomApp():
 
         self.update_user_info_server()
 
+        self.my_mail = MyMail(self.gui)
+
     def gui_th(self):
         app = ttk.Window("ROOM LOG")
+        app.attributes("-topmost", True)
         app.geometry(TK_CENTER(app, 1300, 800))
         app.iconbitmap(MAIN_ICO_PATH)
         self.gui = RoomLog(app)
@@ -1440,13 +1531,13 @@ class RoomApp():
         blacklist = self.gui.system_setting['blacklist']
 
         self.gui.func_insert_information("Room Ip: {0} Room Port: {1}".format(ip, port), "slateblue")
-        self.room = ChatRoom.Room(
+        self.room = Room(
             ip=ip,
             port=port,
             password=password,
             user_napw_info=user_napw_info,
             blacklist=blacklist,
-            gui_log_information=self.gui.func_room_log_information,
+            gui=self.gui,
         )
 
     def update_user_info_server(self):

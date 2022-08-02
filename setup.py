@@ -22,6 +22,7 @@ setup(
         "tqdm>=4.44.1",
         "Mconfig>=1.1.4",
         "ttkbootstrap>=1.9.0",
+        "yagmail>=0.15.280"
     ],
     entry_points={
     },

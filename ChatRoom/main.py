@@ -17,7 +17,7 @@ from ChatRoom.net import Server, Client
 
 class Room():
 
-    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True, gui_log_information=None):
+    def __init__(self, ip="", port=2428, password="Passable", log="INFO", user_napw_info=None, blacklist=None, encryption=True, gui=None):
         """
         文档:
             创建一个聊天室
@@ -60,10 +60,11 @@ class Room():
         self.user_napw_info = user_napw_info
         self.blacklist = blacklist
         self.encryption = encryption
+        self.gui = gui
 
-        self._log = Log(log, gui_log_information)
+        self._log = Log(log, gui.func_room_log_information)
 
-        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption, gui_log_information=gui_log_information)
+        self.server = Server(self.ip, self.port, self.password, log=log, user_napw_info=user_napw_info, blacklist=blacklist, encryption=encryption, gui_log_information=gui.func_room_log_information)
 
         self.server._register_disconnect_user_fun(self._disconnect_callback)
 
@@ -110,9 +111,11 @@ class Room():
                         get_user = getattr(self.user, from_user)
                         get_user.send(['CMD_UserNapwInfo', self.user_napw_info])
                     elif cmd == "CMD_UserLog":
-                        # TODO 处理User日志信息
-                        # [from_user', ["CMD_UserLog", time.strftime('%Y-%m-%d %H:%M:%S'), log_id, log_type, log_info]
-                        self._log.log_info_format("LOG", recv_data)
+                        # [from_user', ["CMD_UserLog", ('CMD_UserLog', 40001, 'ERR', 'Err_40001_info', '2022-08-02 10:25:26')]]
+                        if self.gui:
+                            self.gui.func_insert_log(from_user, recv_data[1][1], recv_data[1][2], recv_data[1][3])
+                        else:
+                            self._log.log_info_format("LOG", recv_data)
                     else:
                         print("{0} recv not format data: {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), recv_data))
                 except Exception as err:
@@ -643,6 +646,7 @@ class User():
             info : str
                 日志信息
         """
+        log_id = str(log_id)
         try:
             self.user.Room.send(("CMD_UserLog", log_id, log_type, log_info, time.strftime('%Y-%m-%d %H:%M:%S')))
         except Exception:
@@ -658,7 +662,14 @@ class User():
             log_id : str
                 日志id
         """
-        log_list = self._log_config.LOG_ID_DICT.get(str(log_id), ["Err", "LogIDErr"])
+        log_id = str(log_id)
+
+        try:
+            log_list = self._log_config.LOG_ID_DICT[log_id]
+        except KeyError:
+            print("{0}: \033[0;36;41m日志ID不存在!\033[0m".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            log_list = ["Err", "LogIDErr"]
+
         self.log(log_id, log_list[0], log_list[1])
 
 if __name__ == "__main__":
