@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fd:
 
 setup(
     name = 'ChatRoom-jianjun',
-    version = '1.1.7',
+    version = '2.0.0',
     author = 'jianjun',
     author_email = '910667956@qq.com',
     url = 'https://github.com/EVA-JianJun/ChatRoom',
@@ -25,5 +25,8 @@ setup(
         "yagmail>=0.15.280"
     ],
     entry_points={
+        'console_scripts': [
+            'room=ChatRoom:_RunRoom'
+        ],
     },
 )

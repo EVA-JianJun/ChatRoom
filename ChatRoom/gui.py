@@ -1,4 +1,5 @@
 import os
+import queue
 import time
 import string
 import shutil
@@ -1670,6 +1671,10 @@ class RoomApp():
         update_user_info_th = threading.Thread(target=sub)
         update_user_info_th.setDaemon(True)
         update_user_info_th.start()
+
+def RunRoom():
+    room_app = RoomApp()
+    queue.Queue().get()
 
 if __name__ == '__main__':
 
