@@ -1013,7 +1013,7 @@ class RoomLog(ttk.Frame):
         blacklist_entry.insert(END, blacklist)
         blacklist_entry.grid(row=1, column=1, rowspan=1, columnspan=5, pady=1)
 
-        user_napw_info_label = ttk.Label(room_frame, text="UNF: ")
+        user_napw_info_label = ttk.Label(room_frame, text="UNI: ")
         user_napw_info_label.grid(row=2, column=0, rowspan=1, columnspan=1, pady=1)
         user_napw_info_entry = ttk.Entry(room_frame, width=50)
         user_napw_info_entry.insert(END, user_napw_info)
