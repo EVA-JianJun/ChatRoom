@@ -14,7 +14,7 @@
 
 ![main][2]
 
-`Room` 调度所有 `User` 的连接, 同一局域网如 `Net A` 和 `Net B` 内 `User` 只能局域网内互联, `User H` 是具有公网IP的用户结点, 则所有的 `User` 都可以与 `User H` 建立连接.
+`Room` 调度所有 `User` 的连接, 同一局域网如 `Net A` 和 `Net B` 内 `User` 只能局域网内互联, `User H` 是具有公网IP的用户节点, 所有的 `User` 都会与 `User H` 建立连接.
 
 ### `ChatRoom` 特性
 
@@ -27,7 +27,7 @@
 
 会话层加密可以关闭，传输大数据可有效提升性能，加密的一端可以自动兼容未加密的一端.
 
-建议Romm开启加密, 可靠内网环境不开启加密, 公网User开启加密.
+建议`Room`开启加密, 可靠内网环境不开启加密, 公网`User`开启加密.
 
 ### `ChatRoom` 连接方式
 
@@ -426,6 +426,56 @@ Room Gui客户端, 命令行输入 `room` 既可以打开本文开头所示的ro
 
     user_bar.user.Foo.status
     # Out: {'user': [1, 'Administrator'], 'server_time': ['2022-08-03 10:16:38', '2022-07-21 18:24:58'], 'network': ['9.8 Kb/s', '2.0 Kb/s'], 'cpu_count': 8, 'cpu_rate': '3.5%', 'memory': ['38%', '19.97', '31.94'], 'disk': {'C:\\': {'total': 248849244160, 'used': 89227833344, 'free': 159621410816, 'percent': 35.9}}, 'process_status': ['OK', 'Python 4']}
+
+## 日志
+
+`User` 可以向 `Room` 发送日志, 用于监控程序的运行状况
+
+    def log(self, log_id, log_type, log_info):
+        """
+        文档:
+            向Room发送一条日志记录
+
+        参数:
+            log_id : str
+                日志id
+            log_type : str
+                日志类型
+            info : str
+                日志信息
+        """
+
+    user_bar.log("00001", "INFO", "log info")
+    user_bar.log("40001", "ERR", "Err log info")
+
+在 `Room Gui` 客户端可以配置各个ID或者日志类型的日志标签颜色, 是否发送邮件通知管理员, 是否禁用某个ID或者类型的日志的邮件通知.邮件功能需要设置 SMTP 服务后才可以开启
+
+`User` 建立后, 默认会在当前路径新建 `LOG_CONFIG.py` 文件:
+
+    # Create Time: 2021-09-02 14:23:52
+    # -*- coding: utf-8 -*-
+    # config info write here
+    # 把日志信息写入下面的字典中
+    # id : [类型, 内容]
+    LOG_ID_DICT = {
+        "00001" : ["NOMAL", "test_00001_info"],
+        "00002" : ["NOMAL", "test_00002_info"],
+        "40001" : [  "ERR", "Err_40001_info"],
+    }
+
+这个文件内的日志信息可以自定义配置, 然后就可以直接使用 `log_id` 函数发送日志:
+
+    def log_id(self, log_id):
+        """
+        文档:
+            向Room发送一条日志记录,只需要日志id参数
+
+        参数:
+            log_id : str
+                日志id
+    """
+
+    user_bar.log_id("00001")
 
   [1]: https://raw.githubusercontent.com/EVA-JianJun/GitPigBed/master/blog_files/img/room_app_main.png
   [2]: https://raw.githubusercontent.com/EVA-JianJun/GitPigBed/master/blog_files/img/ChatRoom_architecture.png
